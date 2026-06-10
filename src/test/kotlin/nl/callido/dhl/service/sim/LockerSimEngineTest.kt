@@ -11,7 +11,6 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
@@ -33,15 +32,20 @@ class LockerSimEngineTest {
         assertEquals(SimSessionState.READY, bound.state)
         assertEquals(1, bound.version)
 
+        // smallest enabled door in BIG that fits an S parcel
+        val smallestFit = LockerConfigurations.byName.getValue("BIG")
+            .filter { it.enabled && it.size >= ParcelSize.S }
+            .minOf { it.size }
+
         val validation = engine.validate(ValidateRequest(init.sessionId, "DHL-IN-001", ParcelSize.S))
         assertTrue(validation.valid)
-        assertEquals(ParcelSize.S, validation.suggestedSize)
+        assertEquals(smallestFit, validation.suggestedSize)
 
         val attempt = engine.handInAttempt(MutationRequest(init.sessionId, 1, "DHL-IN-001", ParcelSize.S))
         assertEquals(SimSessionState.HAND_IN_DOOR_OPEN, attempt.state)
         assertEquals(2, attempt.version)
         val compartment = assertNotNull(attempt.compartment)
-        assertEquals(ParcelSize.S, compartment.size)
+        assertEquals(smallestFit, compartment.size)
         assertEquals(CompartmentState.DOOR_OPEN, compartment.state)
 
         val closed = engine.door(compartment.nr, DoorAction.CLOSE)
@@ -138,33 +142,22 @@ class LockerSimEngineTest {
     }
 
     @Test
-    fun `generated configs fill every column exactly and decay toward big sizes`() {
+    fun `template configs parse into consistent machines`() {
         val state = engine.fullState()
         assertEquals("BIG", state.config)
-        assertEquals(ParcelSize.entries.toSet(), state.compartments.map { it.size }.toSet())
-        val xxl = state.compartments.filter { it.size == ParcelSize.XXL }
-        assertTrue(xxl.all { it.backAddress != null }, "XXL compartments have back doors")
-        assertFalse(state.compartments.any { it.size != ParcelSize.XXL && it.backAddress != null })
 
-        for (config in LockerConfigurations.byName.values) {
-            // every column packs to exactly the fictional machine height
-            config.groupBy { it.column }.values.forEach { column ->
-                assertEquals(
-                    LockerConfigurations.COLUMN_HEIGHT_CM,
-                    column.sumOf { LockerConfigurations.DOOR_PITCH_CM.getValue(it.size) },
-                )
-            }
-            // commercial space management: counts decay toward big sizes.
-            // The 5cm sliver fix may shift a door per column one size up,
-            // hence the tolerance of one column count.
-            val counts = config.groupingBy { it.size }.eachCount()
-            val columns = config.maxOf { it.column }
-            ParcelSize.entries.zipWithNext().forEach { (smaller, bigger) ->
-                assertTrue(
-                    (counts[smaller] ?: 0) + columns >= (counts[bigger] ?: 0),
-                    "$smaller (${counts[smaller]}) should not be much rarer than $bigger (${counts[bigger]})",
-                )
-            }
+        for ((name, config) in LockerConfigurations.byName) {
+            // exactly one technical compartment (screen/camera/scanner)
+            assertEquals(1, config.count { it.label == "TC" }, "$name needs one TC")
+            // modules and the brievenbus are never courier doors
+            assertTrue(config.filter { it.label in setOf("TC", "FC", "BUS") }.none { it.enabled })
+            // enabled doors carry unique sequential hardware addresses
+            val addresses = config.filter { it.enabled }.map { it.address }
+            assertEquals(addresses.toSet().size, addresses.size, "$name addresses must be unique")
+            assertEquals((1..addresses.size).toList(), addresses.sorted(), "$name addresses are sequential")
+            // every column has at least one slot and there is an M door for the preload
+            assertTrue(config.groupBy { it.column }.values.all { it.isNotEmpty() })
+            assertTrue(config.any { it.enabled && it.size == ParcelSize.M }, "$name needs an M door")
         }
     }
 
@@ -172,8 +165,9 @@ class LockerSimEngineTest {
     fun `attempt picks the smallest free compartment that fits`() {
         val init = engine.init()
         engine.bind(init.qrCode)
-        // XXS parcel: should land in an XXS compartment, not anything bigger
+        // XXS parcel: should land in the smallest enabled door, not anything bigger
+        val smallestDoor = LockerConfigurations.byName.getValue("BIG").filter { it.enabled }.minOf { it.size }
         val attempt = engine.handInAttempt(MutationRequest(init.sessionId, 1, "DHL-XXS-1", ParcelSize.XXS))
-        assertEquals(ParcelSize.XXS, attempt.compartment!!.size)
+        assertEquals(smallestDoor, attempt.compartment!!.size)
     }
 }
