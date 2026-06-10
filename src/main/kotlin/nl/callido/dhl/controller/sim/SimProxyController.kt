@@ -1,5 +1,7 @@
 package nl.callido.dhl.controller.sim
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import nl.callido.dhl.client.LockerSimClient
 import nl.callido.dhl.dto.sim.BindRequest
 import nl.callido.dhl.dto.sim.DoorRequest
@@ -7,6 +9,7 @@ import nl.callido.dhl.dto.sim.FailureRequest
 import nl.callido.dhl.dto.sim.ResetRequest
 import nl.callido.dhl.dto.sim.SimSessionSnapshot
 import nl.callido.dhl.dto.sim.SimStateSnapshot
+import nl.callido.dhl.service.sim.DemoResetService
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBooleanProperty
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PostMapping
@@ -22,7 +25,7 @@ import org.springframework.web.bind.annotation.RestController
 @RestController
 @RequestMapping("/api/sim")
 @ConditionalOnBooleanProperty("dhl.sim-passthrough.enabled")
-class SimProxyController(private val client: LockerSimClient) {
+class SimProxyController(private val client: LockerSimClient, private val demoReset: DemoResetService) {
 
     @PostMapping("/bind")
     suspend fun bind(@RequestBody req: BindRequest): SimSessionSnapshot = client.simBind(req)
@@ -36,6 +39,10 @@ class SimProxyController(private val client: LockerSimClient) {
     @PostMapping("/failures")
     suspend fun failures(@RequestBody req: FailureRequest): SimStateSnapshot = client.simFailures(req)
 
+    /** Full demo reset: the sim AND the seeded data (parcels, sessions, registrations). */
     @PostMapping("/reset")
-    suspend fun reset(@RequestBody(required = false) req: ResetRequest?): SimStateSnapshot = client.simReset(req ?: ResetRequest())
+    suspend fun reset(@RequestBody(required = false) req: ResetRequest?): SimStateSnapshot {
+        withContext(Dispatchers.IO) { demoReset.resetDemoData() }
+        return client.simReset(req ?: ResetRequest())
+    }
 }
