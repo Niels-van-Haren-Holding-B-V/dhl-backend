@@ -42,7 +42,7 @@ object LockerConfigurations {
 
     private const val BIG_TEMPLATE =
         "2 9 1 M B L M M 2 M L M M 3 M TC M L M M 4 XL XL M " +
-            "5 M L L M M 6 M M M L M M 7 M M M L M M 8 XL XL M"
+            "5 M L L M M 6 M M M L M M 7 M M M L M M 8 XXL L M"
 
     private val DOOR_SIZES = mapOf(
         "XS" to ParcelSize.XS,
