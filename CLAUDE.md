@@ -31,6 +31,11 @@ at this server. locker-sim itself gets NO public hostname (ClusterIP only).
   Reactor runs underneath but NO hand-written Mono/Flux in production code
   (tests may bridge, e.g. the stub ReactiveJwtDecoder). Blocking JPA/engine
   work always hops to `Dispatchers.IO` — never on the event loop.
+  *Why WebFlux*: this BFF is a polling proxy — many concurrent short calls
+  (trips every 5s, session status every 1.5s, sim state every 1s, per client)
+  fanning out to Keycloak and the locker-sim; non-blocking handles that
+  fan-out without tying a thread per in-flight request. It also matches
+  existing WebFlux experience from bol.com and Alliander.
 - Spring Security 7 (two OAuth2 resource server chains), Spring Data JPA, Flyway
 - Jackson 3 (`tools.jackson`), springdoc-openapi 3: spec at /v3/api-docs —
   dhl-frontend generates its client from this

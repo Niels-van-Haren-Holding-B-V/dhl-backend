@@ -2,7 +2,7 @@
   "realm": "locker",
   "enabled": true,
   "registrationAllowed": false,
-  "sslRequired": "external",
+  "sslRequired": "none",
   "clients": [
     {
       "clientId": "dhl-backend",

@@ -11,9 +11,15 @@ import org.springframework.security.oauth2.client.OAuth2AuthorizeRequest
 import org.springframework.security.oauth2.client.registration.ClientRegistration
 import org.springframework.security.oauth2.client.registration.InMemoryClientRegistrationRepository
 import org.springframework.security.oauth2.core.AuthorizationGrantType
+import org.springframework.web.reactive.function.client.WebClient
 
 @Configuration
 class LockerClientConfig {
+
+    // spring-boot-webclient ships the classes but (unlike Boot 3) no
+    // WebClient.Builder bean in this setup — provide it ourselves.
+    @Bean
+    fun webClientBuilder(): WebClient.Builder = WebClient.builder()
 
     /**
      * Client-credentials flow against the `locker` realm. The registration is

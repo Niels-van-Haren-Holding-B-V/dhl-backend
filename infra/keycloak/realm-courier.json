@@ -2,7 +2,7 @@
   "realm": "courier",
   "enabled": true,
   "registrationAllowed": false,
-  "sslRequired": "external",
+  "sslRequired": "none",
   "users": [
     {
       "username": "koerier",
