@@ -1,0 +1,35 @@
+# Demo reset: the schema + seed come from Flyway at backend startup; this Job
+# puts the seeded data back in its starting position between demo runs.
+# Run with: kubectl -n dhl-demo delete job demo-reset --ignore-not-found && kubectl apply -f infra/k8s/seed-job.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: demo-reset
+  namespace: dhl-demo
+spec:
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: psql
+          image: postgres:17-alpine
+          env:
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: dhl-secrets
+                  key: db-password
+          command:
+            - psql
+            - -h
+            - postgres
+            - -U
+            - dhl
+            - -d
+            - dhl
+            - -c
+            - |
+              truncate delivery_registration, outbox;
+              delete from locker_session;
+              update parcel set status = 'EXPECTED';

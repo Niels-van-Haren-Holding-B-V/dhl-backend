@@ -1,0 +1,18 @@
+{
+  "realm": "locker",
+  "enabled": true,
+  "registrationAllowed": false,
+  "sslRequired": "external",
+  "clients": [
+    {
+      "clientId": "dhl-backend",
+      "name": "DHL backend (client credentials)",
+      "enabled": true,
+      "publicClient": false,
+      "serviceAccountsEnabled": true,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "secret": "locker-demo-secret"
+    }
+  ]
+}

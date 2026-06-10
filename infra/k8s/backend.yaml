@@ -1,0 +1,114 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dhl-backend
+  namespace: dhl-demo
+spec:
+  replicas: 1   # SessionLocks is in-memory: scaling out needs pg advisory locks first
+  selector:
+    matchLabels:
+      app: dhl-backend
+  template:
+    metadata:
+      labels:
+        app: dhl-backend
+    spec:
+      imagePullSecrets:
+        - name: ghcr
+      containers:
+        - name: dhl-backend
+          image: ghcr.io/niels-van-haren-holding-b-v/dhl-backend:latest
+          env:
+            - name: PORT
+              value: "8080"
+            - name: DB_URL
+              value: jdbc:postgresql://postgres:5432/dhl
+            - name: DB_USER
+              value: dhl
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: dhl-secrets
+                  key: db-password
+            - name: KEYCLOAK_ISSUER_COURIER
+              value: https://dhl-auth.vanharen-it.nl/realms/courier
+            - name: KEYCLOAK_ISSUER_LOCKER
+              value: https://dhl-auth.vanharen-it.nl/realms/locker
+            - name: LOCKER_TOKEN_URI
+              value: https://dhl-auth.vanharen-it.nl/realms/locker/protocol/openid-connect/token
+            - name: LOCKER_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: dhl-secrets
+                  key: locker-client-secret
+            - name: LOCKER_SIM_BASE_URL
+              value: http://locker-sim:8080
+            - name: KAFKA_BOOTSTRAP
+              value: redpanda:9092
+            - name: DHL_BACKEND_ENABLED
+              value: "true"
+            - name: LOCKER_SIM_SERVE
+              value: "false"   # this pod is the BFF only; the sim runs behind the ClusterIP service
+            - name: SIM_ENABLED
+              value: "true"
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            initialDelaySeconds: 20
+          resources:
+            requests:
+              memory: 512Mi
+            limits:
+              memory: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dhl-backend
+  namespace: dhl-demo
+spec:
+  selector:
+    app: dhl-backend
+  ports:
+    - port: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: dhl-backend
+  namespace: dhl-demo
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+spec:
+  tls:
+    - hosts: [dhl-api.vanharen-it.nl]
+      secretName: dhl-backend-tls
+  rules:
+    - host: dhl-api.vanharen-it.nl
+      http:
+        paths:
+          # Only the BFF surface is public; /locker-api is reachable in-cluster only.
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: dhl-backend
+                port:
+                  number: 8080
+          - path: /actuator/health
+            pathType: Prefix
+            backend:
+              service:
+                name: dhl-backend
+                port:
+                  number: 8080
+          - path: /v3/api-docs
+            pathType: Prefix
+            backend:
+              service:
+                name: dhl-backend
+                port:
+                  number: 8080

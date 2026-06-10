@@ -1,0 +1,71 @@
+# The "other team's" locker API: same image, sim role only.
+# ClusterIP ONLY — deliberately NO ingress and NO public hostname. The only
+# road to the locker runs through the BFF (that's the point of the demo).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: locker-sim
+  namespace: dhl-demo
+spec:
+  replicas: 1   # it simulates ONE physical machine; state is in memory
+  selector:
+    matchLabels:
+      app: locker-sim
+  template:
+    metadata:
+      labels:
+        app: locker-sim
+    spec:
+      imagePullSecrets:
+        - name: ghcr
+      containers:
+        - name: locker-sim
+          image: ghcr.io/niels-van-haren-holding-b-v/dhl-backend:latest
+          env:
+            - name: PORT
+              value: "8080"
+            - name: DB_URL
+              value: jdbc:postgresql://postgres:5432/dhl
+            - name: DB_USER
+              value: dhl
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: dhl-secrets
+                  key: db-password
+            - name: KEYCLOAK_ISSUER_COURIER
+              value: https://dhl-auth.vanharen-it.nl/realms/courier
+            - name: KEYCLOAK_ISSUER_LOCKER
+              value: https://dhl-auth.vanharen-it.nl/realms/locker
+            - name: KAFKA_BOOTSTRAP
+              value: redpanda:9092
+            - name: DHL_BACKEND_ENABLED
+              value: "false"  # no BFF endpoints, no reaper, no outbox publisher here
+            - name: LOCKER_SIM_SERVE
+              value: "true"
+            - name: SIM_ENABLED
+              value: "false"
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            initialDelaySeconds: 20
+          resources:
+            requests:
+              memory: 512Mi
+            limits:
+              memory: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: locker-sim
+  namespace: dhl-demo
+spec:
+  type: ClusterIP
+  selector:
+    app: locker-sim
+  ports:
+    - port: 8080

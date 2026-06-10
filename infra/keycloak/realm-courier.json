@@ -1,0 +1,43 @@
+{
+  "realm": "courier",
+  "enabled": true,
+  "registrationAllowed": false,
+  "sslRequired": "external",
+  "users": [
+    {
+      "username": "koerier",
+      "enabled": true,
+      "firstName": "Demo",
+      "lastName": "Koerier",
+      "email": "koerier@example.com",
+      "emailVerified": true,
+      "credentials": [
+        { "type": "password", "value": "demo-password", "temporary": false }
+      ]
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "dhl-frontend",
+      "name": "DHL Courier frontend",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true,
+      "redirectUris": [
+        "http://localhost:5173/*",
+        "https://dhl-courier.vanharen-it.nl/*",
+        "https://dhl-locker.vanharen-it.nl/*"
+      ],
+      "webOrigins": [
+        "http://localhost:5173",
+        "https://dhl-courier.vanharen-it.nl",
+        "https://dhl-locker.vanharen-it.nl"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "+"
+      }
+    }
+  ]
+}
