@@ -45,6 +45,7 @@ object LockerConfigurations {
             "5 M L L M M 6 M M M L M M 7 M M M L M M 8 XXL L M"
 
     private val DOOR_SIZES = mapOf(
+        "XXS" to ParcelSize.XXS,
         "XS" to ParcelSize.XS,
         "S" to ParcelSize.S,
         "M" to ParcelSize.M,
@@ -52,6 +53,24 @@ object LockerConfigurations {
         "XL" to ParcelSize.XL,
         "XXL" to ParcelSize.XXL,
     )
+
+    /** Door pitch per size (door + frame), cm; modules (TC/FC) have a fixed pitch. */
+    val DOOR_PITCH_CM: Map<ParcelSize, Int> = mapOf(
+        ParcelSize.XXS to 10,
+        ParcelSize.XS to 15,
+        ParcelSize.S to 20,
+        ParcelSize.M to 30,
+        ParcelSize.L to 40,
+        ParcelSize.XL to 55,
+        ParcelSize.XXL to 75,
+    )
+    const val MODULE_PITCH_CM = 45
+
+    private fun pitchOf(token: String): Int = when (token) {
+        "TC", "FC" -> MODULE_PITCH_CM
+        "B" -> DOOR_PITCH_CM.getValue(ParcelSize.XXS)
+        else -> DOOR_PITCH_CM.getValue(DOOR_SIZES.getValue(token))
+    }
 
     private fun parse(template: String): List<CompartmentSpec> {
         val tokens = template.trim().split(Regex("\\s+"))
@@ -65,6 +84,33 @@ object LockerConfigurations {
                 columns.getOrPut(column) { mutableListOf() }
             } else {
                 columns.getValue(column).add(token)
+            }
+        }
+        // the letterbox address rule looks at the column as TEMPLATED
+        val templatedColumnSize = columns.mapValues { (_, slots) -> slots.size }
+        // a machine face is always completely filled: pad every column with
+        // extra doors until it reaches the tallest column of the template
+        val tallest = columns.values.maxOf { slots -> slots.sumOf(::pitchOf) }
+        for (slots in columns.values) {
+            var gap = tallest - slots.sumOf(::pitchOf)
+            while (gap >= 10) {
+                val fill = listOf("M", "S", "XS", "XXS").first { token ->
+                    val rest = gap - pitchOf(token)
+                    rest == 0 || rest >= 10
+                }
+                slots.add(fill)
+                gap -= pitchOf(fill)
+            }
+            // a 5cm sliver: swap one small door for the next size up
+            if (gap == 5) {
+                val swaps = listOf("XXS" to "XS", "XS" to "S", "S" to "M")
+                for ((out, repl) in swaps) {
+                    val i = slots.indexOf(out)
+                    if (i >= 0) {
+                        slots[i] = repl
+                        break
+                    }
+                }
             }
         }
         var nr = 0
@@ -87,7 +133,7 @@ object LockerConfigurations {
                         label = "BUS",
                         column = col,
                         // the letterbox has a fixed hardware address outside the sequence
-                        address = if (steel <= 2 && slots.size <= 4) 20 else 0,
+                        address = if (steel <= 2 && templatedColumnSize.getValue(col) <= 4) 20 else 0,
                         backAddress = null,
                         size = ParcelSize.XXS,
                         enabled = false,

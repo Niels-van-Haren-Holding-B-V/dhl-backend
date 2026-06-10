@@ -158,6 +158,17 @@ class LockerSimEngineTest {
             // every column has at least one slot and there is an M door for the preload
             assertTrue(config.groupBy { it.column }.values.all { it.isNotEmpty() })
             assertTrue(config.any { it.enabled && it.size == ParcelSize.M }, "$name needs an M door")
+            // the machine face is completely filled: every column has the same pitch
+            val pitches = config.groupBy { it.column }.values.map { column ->
+                column.sumOf {
+                    if (it.label == "TC" || it.label == "FC") {
+                        LockerConfigurations.MODULE_PITCH_CM
+                    } else {
+                        LockerConfigurations.DOOR_PITCH_CM.getValue(it.size)
+                    }
+                }
+            }
+            assertEquals(1, pitches.toSet().size, "$name columns differ in height: $pitches")
         }
     }
 
