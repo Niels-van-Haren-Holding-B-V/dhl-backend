@@ -1,16 +1,16 @@
 package nl.callido.dhl.service.sim
 
 import nl.callido.dhl.common.ParcelSize
-import nl.callido.dhl.dto.sim.CompartmentState
 import nl.callido.dhl.dto.sim.CompartmentDto
+import nl.callido.dhl.dto.sim.CompartmentState
 import nl.callido.dhl.dto.sim.DoorAction
 import nl.callido.dhl.dto.sim.FailureMode
 import nl.callido.dhl.dto.sim.InitResponse
 import nl.callido.dhl.dto.sim.MutationRequest
 import nl.callido.dhl.dto.sim.SimLogEntry
+import nl.callido.dhl.dto.sim.SimSessionDto
 import nl.callido.dhl.dto.sim.SimSessionSnapshot
 import nl.callido.dhl.dto.sim.SimSessionState
-import nl.callido.dhl.dto.sim.SimSessionDto
 import nl.callido.dhl.dto.sim.SimStateSnapshot
 import nl.callido.dhl.dto.sim.StatusResponse
 import nl.callido.dhl.dto.sim.ValidateRequest
@@ -28,13 +28,7 @@ import java.util.UUID
 @Component
 class LockerSimEngine {
 
-    private class SimSession(
-        val id: String,
-        val qrCode: String,
-        var state: SimSessionState,
-        var version: Int,
-        var boundAt: Instant?,
-    )
+    private class SimSession(val id: String, val qrCode: String, var state: SimSessionState, var version: Int, var boundAt: Instant?)
 
     private class Compartment(val spec: CompartmentSpec, var state: CompartmentState, var barcode: String?) {
         fun toDto() = CompartmentDto(
@@ -44,11 +38,7 @@ class LockerSimEngine {
         )
     }
 
-    private data class Extras(
-        val compartment: Compartment? = null,
-        val parcelPresent: Boolean? = null,
-        val failure: String? = null,
-    )
+    private data class Extras(val compartment: Compartment? = null, val parcelPresent: Boolean? = null, val failure: String? = null)
 
     private var configName: String = LockerConfigurations.DEFAULT
     private var compartments: MutableList<Compartment> = mutableListOf()
@@ -56,6 +46,7 @@ class LockerSimEngine {
     private var activeNr: Int? = null
     private val failures: EnumSet<FailureMode> = EnumSet.noneOf(FailureMode::class.java)
     private val eventLog = ArrayDeque<SimLogEntry>()
+
     /** After report-incorrect-compartment-size: barcode → size that proved too small. */
     private val sizeHints = mutableMapOf<String, ParcelSize>()
 
@@ -70,7 +61,10 @@ class LockerSimEngine {
         maybeDelay()
         // A new courier session displaces a dangling previous one (demo-friendly).
         compartments.filter { it.state == CompartmentState.RESERVED || it.state == CompartmentState.DOOR_OPEN }
-            .forEach { it.state = CompartmentState.FREE; it.barcode = null }
+            .forEach {
+                it.state = CompartmentState.FREE
+                it.barcode = null
+            }
         activeNr = null
         val id = UUID.randomUUID().toString()
         val s = SimSession(id, "DHL-LOCKER:$id", SimSessionState.CREATED, 0, null)
@@ -88,17 +82,16 @@ class LockerSimEngine {
     }
 
     @Synchronized
-    fun finished(req: MutationRequest): SimSessionSnapshot =
-        mutate("session/finished", SimEvent.FINISH, req) { _ ->
-            activeCompartmentOrNull()?.let {
-                if (it.state == CompartmentState.DOOR_OPEN || it.state == CompartmentState.RESERVED) {
-                    it.state = CompartmentState.FREE
-                    it.barcode = null
-                }
+    fun finished(req: MutationRequest): SimSessionSnapshot = mutate("session/finished", SimEvent.FINISH, req) { _ ->
+        activeCompartmentOrNull()?.let {
+            if (it.state == CompartmentState.DOOR_OPEN || it.state == CompartmentState.RESERVED) {
+                it.state = CompartmentState.FREE
+                it.barcode = null
             }
-            activeNr = null
-            Extras()
-        }.also { session?.state = SimSessionState.FINISHED }
+        }
+        activeNr = null
+        Extras()
+    }.also { session?.state = SimSessionState.FINISHED }
 
     @Synchronized
     fun validate(req: ValidateRequest): ValidateResponse {
@@ -112,8 +105,11 @@ class LockerSimEngine {
             req.size == null -> ValidateResponse(false, "NO_FITTING_SIZE")
             else -> {
                 val candidate = selectCompartment(req.barcode, req.size, honourFailure = false)
-                if (candidate == null) ValidateResponse(false, "NO_CAPACITY")
-                else ValidateResponse(true, suggestedSize = candidate.spec.size)
+                if (candidate == null) {
+                    ValidateResponse(false, "NO_CAPACITY")
+                } else {
+                    ValidateResponse(true, suggestedSize = candidate.spec.size)
+                }
             }
         }
         log("hand-in/validate", "barcode=${req.barcode} valid=${response.valid} ${response.reason ?: ""}".trim())
@@ -121,39 +117,36 @@ class LockerSimEngine {
     }
 
     @Synchronized
-    fun handInAttempt(req: MutationRequest): SimSessionSnapshot =
-        mutate("hand-in/attempt", SimEvent.HAND_IN_ATTEMPT, req) { s ->
-            val barcode = req.barcode ?: throw SimEngineRejectedException("MISSING_BARCODE", "barcode is required")
-            val size = req.size ?: throw SimEngineRejectedException("MISSING_SIZE", "size is required")
-            requireAllDoorsClosed()
-            val comp = selectCompartment(barcode, size, honourFailure = true)
-                ?: throw SimEngineRejectedException("NO_COMPARTMENT_AVAILABLE", "no free compartment for size $size")
-            comp.state = CompartmentState.DOOR_OPEN
-            comp.barcode = barcode
-            activeNr = comp.spec.nr
-            s.state = SimSessionState.HAND_IN_DOOR_OPEN
-            Extras(comp)
-        }
+    fun handInAttempt(req: MutationRequest): SimSessionSnapshot = mutate("hand-in/attempt", SimEvent.HAND_IN_ATTEMPT, req) { s ->
+        val barcode = req.barcode ?: throw SimEngineRejectedException("MISSING_BARCODE", "barcode is required")
+        val size = req.size ?: throw SimEngineRejectedException("MISSING_SIZE", "size is required")
+        requireAllDoorsClosed()
+        val comp = selectCompartment(barcode, size, honourFailure = true)
+            ?: throw SimEngineRejectedException("NO_COMPARTMENT_AVAILABLE", "no free compartment for size $size")
+        comp.state = CompartmentState.DOOR_OPEN
+        comp.barcode = barcode
+        activeNr = comp.spec.nr
+        s.state = SimSessionState.HAND_IN_DOOR_OPEN
+        Extras(comp)
+    }
 
     @Synchronized
-    fun handInConfirm(req: MutationRequest): SimSessionSnapshot =
-        mutate("hand-in/confirm", SimEvent.HAND_IN_CONFIRM, req) { s ->
-            if (FailureMode.COMPARTMENT_DEFECT in failures) {
-                throw SimEngineRejectedException("COMPARTMENT_DEFECT", "compartment reported a hardware defect")
-            }
-            val comp = activeCompartment()
-            req.barcode?.let { sizeHints.remove(it) }
-            s.state = SimSessionState.HAND_IN_COMPLETED
-            Extras(comp)
+    fun handInConfirm(req: MutationRequest): SimSessionSnapshot = mutate("hand-in/confirm", SimEvent.HAND_IN_CONFIRM, req) { s ->
+        if (FailureMode.COMPARTMENT_DEFECT in failures) {
+            throw SimEngineRejectedException("COMPARTMENT_DEFECT", "compartment reported a hardware defect")
         }
+        val comp = activeCompartment()
+        req.barcode?.let { sizeHints.remove(it) }
+        s.state = SimSessionState.HAND_IN_COMPLETED
+        Extras(comp)
+    }
 
     @Synchronized
-    fun handInContinue(req: MutationRequest): SimSessionSnapshot =
-        mutate("hand-in/continue", SimEvent.HAND_IN_CONTINUE, req) { s ->
-            activeNr = null
-            s.state = SimSessionState.READY
-            Extras()
-        }
+    fun handInContinue(req: MutationRequest): SimSessionSnapshot = mutate("hand-in/continue", SimEvent.HAND_IN_CONTINUE, req) { s ->
+        activeNr = null
+        s.state = SimSessionState.READY
+        Extras()
+    }
 
     @Synchronized
     fun handInReportSize(req: MutationRequest): SimSessionSnapshot =
@@ -179,43 +172,39 @@ class LockerSimEngine {
         }
 
     @Synchronized
-    fun handInReopen(req: MutationRequest): SimSessionSnapshot =
-        mutate("hand-in/reopen-compartment", SimEvent.HAND_IN_REOPEN, req) { s ->
-            val comp = activeCompartment()
-            comp.state = CompartmentState.DOOR_OPEN
-            s.state = SimSessionState.HAND_IN_DOOR_OPEN
-            Extras(comp)
-        }
+    fun handInReopen(req: MutationRequest): SimSessionSnapshot = mutate("hand-in/reopen-compartment", SimEvent.HAND_IN_REOPEN, req) { s ->
+        val comp = activeCompartment()
+        comp.state = CompartmentState.DOOR_OPEN
+        s.state = SimSessionState.HAND_IN_DOOR_OPEN
+        Extras(comp)
+    }
 
     @Synchronized
-    fun handOutStart(req: MutationRequest): SimSessionSnapshot =
-        mutate("hand-out/start", SimEvent.HAND_OUT_START, req) { s ->
-            val barcode = req.barcode ?: throw SimEngineRejectedException("MISSING_BARCODE", "barcode is required")
-            requireAllDoorsClosed()
-            val comp = compartments.find { it.state == CompartmentState.OCCUPIED && it.barcode == barcode }
-                ?: throw SimEngineRejectedException("UNKNOWN_PARCEL", "no occupied compartment holds $barcode")
-            comp.state = CompartmentState.DOOR_OPEN
-            activeNr = comp.spec.nr
-            s.state = SimSessionState.HAND_OUT_DOOR_OPEN
-            val present = FailureMode.PARCEL_MISSING !in failures
-            if (!present) comp.barcode = null
-            Extras(comp, parcelPresent = present)
-        }
+    fun handOutStart(req: MutationRequest): SimSessionSnapshot = mutate("hand-out/start", SimEvent.HAND_OUT_START, req) { s ->
+        val barcode = req.barcode ?: throw SimEngineRejectedException("MISSING_BARCODE", "barcode is required")
+        requireAllDoorsClosed()
+        val comp = compartments.find { it.state == CompartmentState.OCCUPIED && it.barcode == barcode }
+            ?: throw SimEngineRejectedException("UNKNOWN_PARCEL", "no occupied compartment holds $barcode")
+        comp.state = CompartmentState.DOOR_OPEN
+        activeNr = comp.spec.nr
+        s.state = SimSessionState.HAND_OUT_DOOR_OPEN
+        val present = FailureMode.PARCEL_MISSING !in failures
+        if (!present) comp.barcode = null
+        Extras(comp, parcelPresent = present)
+    }
 
     @Synchronized
-    fun handOutConfirm(req: MutationRequest): SimSessionSnapshot =
-        mutate("hand-out/confirm", SimEvent.HAND_OUT_CONFIRM, req) { s ->
-            s.state = SimSessionState.HAND_OUT_COMPLETED
-            Extras()
-        }
+    fun handOutConfirm(req: MutationRequest): SimSessionSnapshot = mutate("hand-out/confirm", SimEvent.HAND_OUT_CONFIRM, req) { s ->
+        s.state = SimSessionState.HAND_OUT_COMPLETED
+        Extras()
+    }
 
     @Synchronized
-    fun handOutContinue(req: MutationRequest): SimSessionSnapshot =
-        mutate("hand-out/continue", SimEvent.HAND_OUT_CONTINUE, req) { s ->
-            activeNr = null
-            s.state = SimSessionState.READY
-            Extras()
-        }
+    fun handOutContinue(req: MutationRequest): SimSessionSnapshot = mutate("hand-out/continue", SimEvent.HAND_OUT_CONTINUE, req) { s ->
+        activeNr = null
+        s.state = SimSessionState.READY
+        Extras()
+    }
 
     @Synchronized
     fun handOutReportMissing(req: MutationRequest): SimSessionSnapshot =
@@ -239,13 +228,12 @@ class LockerSimEngine {
         }
 
     @Synchronized
-    fun handOutAbort(req: MutationRequest): SimSessionSnapshot =
-        mutate("hand-out/abort", SimEvent.HAND_OUT_ABORT, req) { s ->
-            activeCompartmentOrNull()?.let { it.state = CompartmentState.OCCUPIED }
-            activeNr = null
-            s.state = SimSessionState.READY
-            Extras()
-        }
+    fun handOutAbort(req: MutationRequest): SimSessionSnapshot = mutate("hand-out/abort", SimEvent.HAND_OUT_ABORT, req) { s ->
+        activeCompartmentOrNull()?.let { it.state = CompartmentState.OCCUPIED }
+        activeNr = null
+        s.state = SimSessionState.READY
+        Extras()
+    }
 
     // ---- machine-side (sim control) API ----
 
@@ -387,7 +375,9 @@ class LockerSimEngine {
         val hinted = sizeHints[barcode]
         val minSize = if (hinted != null && hinted >= size) {
             ParcelSize.entries.getOrNull(hinted.ordinal + 1) ?: return null
-        } else size
+        } else {
+            size
+        }
         val free = compartments.filter { it.spec.enabled && it.state == CompartmentState.FREE }
         if (honourFailure && FailureMode.SIZE_TOO_SMALL in failures) {
             // Sabotage: deliberately hand out a compartment one or more sizes
@@ -408,9 +398,8 @@ class LockerSimEngine {
         }
     }
 
-    private fun requireSession(sessionId: String): SimSession =
-        session?.takeIf { it.id == sessionId }
-            ?: throw SimEngineRejectedException("UNKNOWN_SESSION", "session $sessionId is not active")
+    private fun requireSession(sessionId: String): SimSession = session?.takeIf { it.id == sessionId }
+        ?: throw SimEngineRejectedException("UNKNOWN_SESSION", "session $sessionId is not active")
 
     private fun activeCompartment(): Compartment = activeCompartmentOrNull()
         ?: throw SimEngineRejectedException("NO_ACTIVE_COMPARTMENT", "no compartment involved in the current action")
@@ -420,9 +409,13 @@ class LockerSimEngine {
     private fun snapshot(extras: Extras): SimSessionSnapshot {
         val s = session!!
         return SimSessionSnapshot(
-            sessionId = s.id, state = s.state, version = s.version, boundAt = s.boundAt,
+            sessionId = s.id,
+            state = s.state,
+            version = s.version,
+            boundAt = s.boundAt,
             compartment = extras.compartment?.toDto(),
-            parcelPresent = extras.parcelPresent, failure = extras.failure,
+            parcelPresent = extras.parcelPresent,
+            failure = extras.failure,
         )
     }
 

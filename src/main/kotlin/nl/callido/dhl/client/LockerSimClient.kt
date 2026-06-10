@@ -55,8 +55,7 @@ class LockerSimClient(
 
     // ---- courier API ----
 
-    suspend fun init(): InitResponse =
-        post("/locker-api/courier/session/init", null)
+    suspend fun init(): InitResponse = post("/locker-api/courier/session/init", null)
 
     suspend fun status(externalSessionId: String): StatusResponse = guarded {
         request {
@@ -69,19 +68,15 @@ class LockerSimClient(
         }
     }
 
-    suspend fun finished(req: MutationRequest): SimSessionSnapshot =
-        post("/locker-api/courier/session/finished", req)
+    suspend fun finished(req: MutationRequest): SimSessionSnapshot = post("/locker-api/courier/session/finished", req)
 
-    suspend fun validate(req: ValidateRequest): ValidateResponse =
-        post("/locker-api/courier/hand-in/validate", req)
+    suspend fun validate(req: ValidateRequest): ValidateResponse = post("/locker-api/courier/hand-in/validate", req)
 
     /** op: attempt | confirm | continue | report-incorrect-compartment-size | report-compartment-issue | reopen-compartment */
-    suspend fun handIn(op: String, req: MutationRequest): SimSessionSnapshot =
-        post("/locker-api/courier/hand-in/$op", req)
+    suspend fun handIn(op: String, req: MutationRequest): SimSessionSnapshot = post("/locker-api/courier/hand-in/$op", req)
 
     /** op: start | continue | confirm | report-missing | report-compartment-issue | abort */
-    suspend fun handOut(op: String, req: MutationRequest): SimSessionSnapshot =
-        post("/locker-api/courier/hand-out/$op", req)
+    suspend fun handOut(op: String, req: MutationRequest): SimSessionSnapshot = post("/locker-api/courier/hand-out/$op", req)
 
     // ---- sim control passthrough ----
 

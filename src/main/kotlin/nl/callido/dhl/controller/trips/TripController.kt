@@ -1,7 +1,7 @@
 package nl.callido.dhl.controller.trips
 
-import nl.callido.dhl.service.trips.TripService
 import nl.callido.dhl.dto.trips.TripDto
+import nl.callido.dhl.service.trips.TripService
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBooleanProperty
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.RequestMapping

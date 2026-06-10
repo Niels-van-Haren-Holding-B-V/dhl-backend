@@ -15,7 +15,8 @@ enum class ParcelSize(val maxLengthCm: Int, val maxWidthCm: Int, val maxHeightCm
     M(43, 31, 20),
     L(58, 43, 28),
     XL(62, 48, 40),
-    XXL(75, 60, 50);
+    XXL(75, 60, 50),
+    ;
 
     fun fits(lengthCm: Int, widthCm: Int, heightCm: Int): Boolean {
         val parcel = listOf(lengthCm, widthCm, heightCm).sortedDescending()

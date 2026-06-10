@@ -4,6 +4,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
+import nl.callido.dhl.client.LockerSimBaseUrl
+import nl.callido.dhl.client.LockerTokenProvider
 import nl.callido.dhl.dto.locker.CreateSessionRequest
 import nl.callido.dhl.dto.locker.CreateSessionResponse
 import nl.callido.dhl.dto.locker.LockerActionRequest
@@ -17,19 +19,17 @@ import nl.callido.dhl.dto.sim.ResetRequest
 import nl.callido.dhl.dto.sim.SimSessionSnapshot
 import nl.callido.dhl.dto.sim.SimSessionState
 import nl.callido.dhl.dto.sim.SimStateSnapshot
-import nl.callido.dhl.service.outbox.OutboxPublisher
 import nl.callido.dhl.dto.trips.TripDto
+import nl.callido.dhl.service.outbox.OutboxPublisher
 import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.apache.kafka.clients.consumer.KafkaConsumer
 import org.apache.kafka.common.serialization.StringDeserializer
 import org.awaitility.Awaitility.await
+import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.MethodOrderer
 import org.junit.jupiter.api.Order
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestMethodOrder
-import nl.callido.dhl.client.LockerSimBaseUrl
-import nl.callido.dhl.client.LockerTokenProvider
-import org.junit.jupiter.api.BeforeEach
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection
@@ -43,12 +43,12 @@ import org.springframework.test.context.DynamicPropertyRegistry
 import org.springframework.test.context.DynamicPropertySource
 import org.springframework.test.context.bean.override.convention.TestBean
 import org.springframework.web.client.RestClient
-import java.time.Instant
 import org.testcontainers.containers.PostgreSQLContainer
 import org.testcontainers.junit.jupiter.Container
 import org.testcontainers.junit.jupiter.Testcontainers
 import org.testcontainers.redpanda.RedpandaContainer
 import java.time.Duration
+import java.time.Instant
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -105,8 +105,11 @@ class HandInFlowIntegrationTest {
         }
 
         @JvmStatic fun stubCourierDecoder(): ReactiveJwtDecoder = stubDecoder("koerier")
+
         @JvmStatic fun stubLockerDecoder(): ReactiveJwtDecoder = stubDecoder("dhl-backend")
+
         @JvmStatic fun stubTokenProvider(): LockerTokenProvider = LockerTokenProvider { "stub-locker-token" }
+
         @JvmStatic fun stubBaseUrl(): LockerSimBaseUrl = LockerSimBaseUrl { "http://localhost:$serverPort" }
     }
 
@@ -126,6 +129,7 @@ class HandInFlowIntegrationTest {
     lateinit var lockerSimBaseUrl: LockerSimBaseUrl
 
     @Autowired lateinit var env: Environment
+
     @Autowired lateinit var jdbc: JdbcTemplate
 
     @BeforeEach
@@ -141,10 +145,9 @@ class HandInFlowIntegrationTest {
             .build()
     }
 
-    private fun <T : Any> get(path: String, type: Class<T>): T =
-        http.get().uri(path)
-            .headers { it.setBearerAuth("test-token") }
-            .retrieve().toEntity(type).body!!
+    private fun <T : Any> get(path: String, type: Class<T>): T = http.get().uri(path)
+        .headers { it.setBearerAuth("test-token") }
+        .retrieve().toEntity(type).body!!
 
     private fun <T : Any> post(path: String, body: Any?, type: Class<T>): ResponseEntity<T> {
         val spec = http.post().uri(path)
@@ -178,14 +181,16 @@ class HandInFlowIntegrationTest {
 
         val validation = post(
             "/api/locker/sessions/${session.sessionId}/hand-in/validate",
-            LockerActionRequest(barcode), ValidationResultDto::class.java,
+            LockerActionRequest(barcode),
+            ValidationResultDto::class.java,
         ).body!!
         assertTrue(validation.valid)
         assertEquals("S", validation.parcelSize?.name)
 
         val attempt = post(
             "/api/locker/sessions/${session.sessionId}/hand-in/attempt",
-            LockerActionRequest(barcode), LockerActionResponse::class.java,
+            LockerActionRequest(barcode),
+            LockerActionResponse::class.java,
         ).body!!
         assertEquals(SimSessionState.HAND_IN_DOOR_OPEN, attempt.simState)
         val compartmentNr = assertNotNull(attempt.compartment).nr
@@ -194,7 +199,8 @@ class HandInFlowIntegrationTest {
 
         val confirm = post(
             "/api/locker/sessions/${session.sessionId}/hand-in/confirm",
-            LockerActionRequest(barcode), LockerActionResponse::class.java,
+            LockerActionRequest(barcode),
+            LockerActionResponse::class.java,
         ).body!!
         assertEquals(false, confirm.reconciled)
         assertEquals(SimSessionState.HAND_IN_COMPLETED, confirm.simState)
@@ -207,7 +213,8 @@ class HandInFlowIntegrationTest {
         // duplicate confirm: locker says 409 (illegal transition) → reconciled truth, no second outbox row
         val duplicate = post(
             "/api/locker/sessions/${session.sessionId}/hand-in/confirm",
-            LockerActionRequest(barcode), LockerActionResponse::class.java,
+            LockerActionRequest(barcode),
+            LockerActionResponse::class.java,
         ).body!!
         assertEquals(true, duplicate.reconciled)
         assertEquals(1, countOutbox(barcode))
@@ -216,7 +223,8 @@ class HandInFlowIntegrationTest {
         await().atMost(Duration.ofSeconds(15)).until {
             jdbc.queryForObject(
                 "select count(*) from outbox where aggregate_id = ? and published_at is not null",
-                Int::class.java, barcode,
+                Int::class.java,
+                barcode,
             ) == 1
         }
         assertKafkaMessageFor(barcode)
@@ -233,7 +241,8 @@ class HandInFlowIntegrationTest {
                 async(Dispatchers.IO) {
                     post(
                         "/api/locker/sessions/$sessionId/hand-in/continue",
-                        null, LockerActionResponse::class.java,
+                        null,
+                        LockerActionResponse::class.java,
                     )
                 }
             }.awaitAll()
@@ -245,11 +254,15 @@ class HandInFlowIntegrationTest {
 
     private fun countRegistrations(sessionId: UUID, barcode: String): Int = jdbc.queryForObject(
         "select count(*) from delivery_registration where session_id = ? and barcode = ?",
-        Int::class.java, sessionId, barcode,
+        Int::class.java,
+        sessionId,
+        barcode,
     )!!
 
     private fun countOutbox(barcode: String): Int = jdbc.queryForObject(
-        "select count(*) from outbox where aggregate_id = ?", Int::class.java, barcode,
+        "select count(*) from outbox where aggregate_id = ?",
+        Int::class.java,
+        barcode,
     )!!
 
     private fun assertKafkaMessageFor(barcode: String) {

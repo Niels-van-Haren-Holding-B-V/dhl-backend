@@ -1,12 +1,12 @@
 package nl.callido.dhl.service.delivery
 
-import nl.callido.dhl.dto.delivery.DeliveryEventPayload
-import nl.callido.dhl.dto.delivery.RegisterDeliveryResponse
 import nl.callido.dhl.domain.DeliveryRegistration
 import nl.callido.dhl.domain.ParcelStatus
-import nl.callido.dhl.service.outbox.OutboxWriter
+import nl.callido.dhl.dto.delivery.DeliveryEventPayload
+import nl.callido.dhl.dto.delivery.RegisterDeliveryResponse
 import nl.callido.dhl.repository.DeliveryRegistrationRepository
 import nl.callido.dhl.repository.ParcelRepository
+import nl.callido.dhl.service.outbox.OutboxWriter
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.time.Instant

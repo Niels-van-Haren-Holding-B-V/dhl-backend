@@ -37,6 +37,5 @@ class SimProxyController(private val client: LockerSimClient) {
     suspend fun failures(@RequestBody req: FailureRequest): SimStateSnapshot = client.simFailures(req)
 
     @PostMapping("/reset")
-    suspend fun reset(@RequestBody(required = false) req: ResetRequest?): SimStateSnapshot =
-        client.simReset(req ?: ResetRequest())
+    suspend fun reset(@RequestBody(required = false) req: ResetRequest?): SimStateSnapshot = client.simReset(req ?: ResetRequest())
 }

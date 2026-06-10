@@ -114,12 +114,14 @@ class LockerSessionService(
         val response = mutation(id) { session, version ->
             client.finished(MutationRequest(session.externalSessionId, version))
         }
-        if (!response.reconciled) locks.withSessionLock(id) {
-            io {
-                val session = load(id)
-                session.status = LockerSessionStatus.FINISHED
-                session.finishedAt = Instant.now()
-                sessions.save(session)
+        if (!response.reconciled) {
+            locks.withSessionLock(id) {
+                io {
+                    val session = load(id)
+                    session.status = LockerSessionStatus.FINISHED
+                    session.finishedAt = Instant.now()
+                    sessions.save(session)
+                }
             }
         }
         return response
@@ -158,17 +160,24 @@ class LockerSessionService(
                 afterSuccess?.invoke(session)
             }
             LockerActionResponse(
-                sessionId = session.id, simState = snapshot.state, version = snapshot.version,
-                reconciled = false, compartment = snapshot.compartment,
-                parcelPresent = snapshot.parcelPresent, failure = snapshot.failure,
+                sessionId = session.id,
+                simState = snapshot.state,
+                version = snapshot.version,
+                reconciled = false,
+                compartment = snapshot.compartment,
+                parcelPresent = snapshot.parcelPresent,
+                failure = snapshot.failure,
             )
         } catch (e: SimConflictException) {
             val truth = client.status(session.externalSessionId)
             session.simVersion = truth.version
             io { sessions.save(session) }
             LockerActionResponse(
-                sessionId = session.id, simState = truth.state, version = truth.version,
-                reconciled = true, reconcileReason = e.conflict?.reason,
+                sessionId = session.id,
+                simState = truth.state,
+                version = truth.version,
+                reconciled = true,
+                reconcileReason = e.conflict?.reason,
             )
         }
     }
@@ -178,8 +187,7 @@ class LockerSessionService(
         sessions.save(session)
     }
 
-    private fun load(id: UUID): LockerSession =
-        sessions.findById(id).orElseThrow { NoSuchElementException("locker session $id not found") }
+    private fun load(id: UUID): LockerSession = sessions.findById(id).orElseThrow { NoSuchElementException("locker session $id not found") }
 
     private suspend fun <T> io(block: () -> T): T = withContext(Dispatchers.IO) { block() }
 }

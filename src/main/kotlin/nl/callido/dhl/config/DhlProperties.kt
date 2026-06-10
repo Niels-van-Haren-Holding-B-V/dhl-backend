@@ -14,6 +14,7 @@ data class DhlProperties(
     val cors: Cors,
 ) {
     data class Backend(val enabled: Boolean)
+
     /**
      * The jwks overrides exist for the dockerized local stack: the backend
      * container fetches keys via the compose network (http://keycloak:8081)

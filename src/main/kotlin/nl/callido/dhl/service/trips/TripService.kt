@@ -12,11 +12,7 @@ import nl.callido.dhl.repository.TripRepository
 import org.springframework.stereotype.Service
 
 @Service
-class TripService(
-    private val trips: TripRepository,
-    private val stops: StopRepository,
-    private val parcels: ParcelRepository,
-) {
+class TripService(private val trips: TripRepository, private val stops: StopRepository, private val parcels: ParcelRepository) {
 
     suspend fun trips(): List<TripDto> = withContext(Dispatchers.IO) {
         val allTrips = trips.findAll()

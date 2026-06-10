@@ -18,10 +18,7 @@ import java.time.Instant
  */
 @Component
 @ConditionalOnBooleanProperty("dhl.backend.enabled")
-class OutboxPublisher(
-    private val outbox: OutboxRepository,
-    private val kafka: KafkaTemplate<String, String>,
-) {
+class OutboxPublisher(private val outbox: OutboxRepository, private val kafka: KafkaTemplate<String, String>) {
     private val log = LoggerFactory.getLogger(javaClass)
 
     @Scheduled(fixedDelay = 2000)

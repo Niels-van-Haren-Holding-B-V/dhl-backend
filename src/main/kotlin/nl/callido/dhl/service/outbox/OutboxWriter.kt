@@ -12,10 +12,7 @@ import java.util.UUID
  * event exists if and only if the registration committed.
  */
 @Service
-class OutboxWriter(
-    private val outbox: OutboxRepository,
-    private val objectMapper: ObjectMapper,
-) {
+class OutboxWriter(private val outbox: OutboxRepository, private val objectMapper: ObjectMapper) {
     fun write(aggregateType: String, aggregateId: String, eventType: String, payload: Any) {
         outbox.save(
             OutboxEvent(

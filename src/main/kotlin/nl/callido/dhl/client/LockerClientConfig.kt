@@ -55,6 +55,5 @@ class LockerClientConfig {
     }
 
     @Bean
-    fun lockerSimBaseUrl(props: DhlProperties): LockerSimBaseUrl =
-        LockerSimBaseUrl { props.lockerSim.baseUrl }
+    fun lockerSimBaseUrl(props: DhlProperties): LockerSimBaseUrl = LockerSimBaseUrl { props.lockerSim.baseUrl }
 }

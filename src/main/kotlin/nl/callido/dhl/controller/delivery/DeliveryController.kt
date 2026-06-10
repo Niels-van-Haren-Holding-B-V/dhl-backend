@@ -2,9 +2,9 @@ package nl.callido.dhl.controller.delivery
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import nl.callido.dhl.service.delivery.DeliveryService
 import nl.callido.dhl.dto.delivery.RegisterDeliveryRequest
 import nl.callido.dhl.dto.delivery.RegisterDeliveryResponse
+import nl.callido.dhl.service.delivery.DeliveryService
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBooleanProperty
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody

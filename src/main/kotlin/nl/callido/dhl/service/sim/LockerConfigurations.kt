@@ -2,7 +2,6 @@ package nl.callido.dhl.service.sim
 
 import nl.callido.dhl.common.ParcelSize
 import kotlin.math.pow
-import kotlin.math.roundToInt
 
 /**
  * Static compartment spec, modelled after a real PostNL-style locker: each
@@ -113,8 +112,7 @@ object LockerConfigurations {
 
     /** Swap one door for a combination 5cm taller; returns the remaining gap. */
     private fun fillSliver(bin: MutableList<ParcelSize>): Int {
-        fun swap(out: ParcelSize, vararg replacement: ParcelSize): Boolean =
-            bin.remove(out).also { if (it) bin.addAll(replacement) }
+        fun swap(out: ParcelSize, vararg replacement: ParcelSize): Boolean = bin.remove(out).also { if (it) bin.addAll(replacement) }
         val resolved = swap(ParcelSize.XXS, ParcelSize.XS) ||
             swap(ParcelSize.XS, ParcelSize.S) ||
             swap(ParcelSize.M, ParcelSize.XS, ParcelSize.S) ||

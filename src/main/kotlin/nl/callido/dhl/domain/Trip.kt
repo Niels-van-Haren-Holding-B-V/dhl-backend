@@ -8,8 +8,4 @@ import java.util.UUID
 
 @Entity
 @Table(name = "trip")
-class Trip(
-    @Id val id: UUID,
-    val name: String,
-    val tripDate: LocalDate,
-)
+class Trip(@Id val id: UUID, val name: String, val tripDate: LocalDate)

@@ -71,6 +71,5 @@ object SessionStateMachine {
         FINISHED to emptySet(),
     )
 
-    fun isAllowed(state: SimSessionState, event: SimEvent): Boolean =
-        transitions[state]?.contains(event) ?: false
+    fun isAllowed(state: SimSessionState, event: SimEvent): Boolean = transitions[state]?.contains(event) ?: false
 }

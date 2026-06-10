@@ -1,12 +1,12 @@
 package nl.callido.dhl.controller.locker
 
-import nl.callido.dhl.service.locker.LockerSessionService
 import nl.callido.dhl.dto.locker.CreateSessionRequest
 import nl.callido.dhl.dto.locker.CreateSessionResponse
 import nl.callido.dhl.dto.locker.LockerActionRequest
 import nl.callido.dhl.dto.locker.LockerActionResponse
 import nl.callido.dhl.dto.locker.SessionStatusDto
 import nl.callido.dhl.dto.locker.ValidationResultDto
+import nl.callido.dhl.service.locker.LockerSessionService
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBooleanProperty
 import org.springframework.http.HttpStatus
 import org.springframework.security.core.annotation.AuthenticationPrincipal
@@ -82,6 +82,5 @@ class LockerSessionController(private val service: LockerSessionService) {
     @PostMapping("/{id}/hand-out/abort")
     suspend fun abort(@PathVariable id: UUID): LockerActionResponse = service.handOutAbort(id)
 
-    private fun requireBarcode(req: LockerActionRequest): String =
-        requireNotNull(req.barcode) { "barcode is required for this action" }
+    private fun requireBarcode(req: LockerActionRequest): String = requireNotNull(req.barcode) { "barcode is required for this action" }
 }
