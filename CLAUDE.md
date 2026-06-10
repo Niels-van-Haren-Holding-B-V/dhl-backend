@@ -273,7 +273,7 @@ Never commit the PAT; Claude Code must ask for it interactively at this step.
 ## 6. Shared services + backend
 
 ```bash
-kubectl apply -k infra/k8s/
+kubectl kustomize --load-restrictor LoadRestrictionsNone infra/k8s | kubectl apply -f -
 kubectl -n dhl-demo get pods    # postgres, redpanda, keycloak, dhl-backend Running
 curl -s https://dhl-auth.vanharen-it.nl/realms/courier/.well-known/openid-configuration | head
 curl -s https://dhl-api.vanharen-it.nl/actuator/health
@@ -281,8 +281,11 @@ curl -s https://dhl-api.vanharen-it.nl/actuator/health
 
 ## CI
 
-GitHub Actions: build + push ghcr.io/<user>/dhl-backend on main; deploy is a
-manual `kubectl apply -k infra/k8s/` (documented, not automated).
+GitHub Actions on main: build + push ghcr.io/<user>/dhl-backend, then a deploy
+job applies the manifests and rolls the deployments (kubeconfig from the
+`KUBECONFIG_B64` repo secret). Manual deploy if ever needed:
+`kubectl kustomize --load-restrictor LoadRestrictionsNone infra/k8s | kubectl apply -f -`
+(the realm JSONs live outside infra/k8s, so plain `apply -k` refuses them).
 
 ## Milestones
 

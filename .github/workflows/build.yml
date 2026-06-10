@@ -46,4 +46,31 @@ jobs:
             ${{ env.IMAGE }}:latest
             ${{ env.IMAGE }}:${{ github.sha }}
 
-# Deploy stays manual and documented: kubectl apply -k infra/k8s/
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    concurrency: k3s-deploy   # one deploy at a time
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Write kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBECONFIG_B64 }}" | base64 -d > ~/.kube/config
+          chmod 600 ~/.kube/config
+
+      - name: Apply manifests
+        # realm JSONs live outside infra/k8s, hence the load restrictor
+        run: kubectl kustomize --load-restrictor LoadRestrictionsNone infra/k8s | kubectl apply -f -
+
+      - name: Roll deployments to the freshly pushed :latest
+        run: |
+          kubectl -n dhl-demo rollout restart deploy/dhl-backend deploy/locker-sim
+          kubectl -n dhl-demo rollout status deploy/dhl-backend --timeout=240s
+          kubectl -n dhl-demo rollout status deploy/locker-sim --timeout=240s
+
+      - name: Smoke check
+        run: |
+          curl -sf https://dhl-api.vanharen-it.nl/actuator/health
+          curl -sf https://dhl-auth.vanharen-it.nl/realms/courier/.well-known/openid-configuration >/dev/null
