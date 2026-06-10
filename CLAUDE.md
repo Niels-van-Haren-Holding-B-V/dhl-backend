@@ -79,9 +79,13 @@ Parcels carry real dimensions (length/width/height cm + weight); the t-shirt
 size (XXS–XXL) is DERIVED from those via `ParcelSize.forDimensions`
 (orientation-free fit), never stored. Compartments are modelled after a real
 PostNL locker (label, column, hardware address, optional back door, enabled).
-Machine configs in `LockerConfigurations`: default **BIG** = 22 compartments,
-a mix of every size, exactly 2 XXL (with back doors); plus COMPACT (12).
-The hand-out parcel DHL-OUT-001 is pre-loaded in compartment **C3** (first M).
+Machine layouts in `LockerConfigurations` are GENERATED, not hand-rolled: a
+fictional machine of N columns × 150cm door area, a real door pitch per size
+(XXS 10cm … XXL 75cm) and a door count that decays exponentially toward the
+big sizes (commercial space management); XXL doors get back doors. Default
+**BIG** = 10 columns, **COMPACT** = 4. The frontend renders doors at
+pitch/150 of the column height — keep `DOOR_PITCH_CM` mirrored there. The
+hand-out parcel DHL-OUT-001 is pre-loaded in the first M compartment.
 
 ## Authentication — two Keycloak realms (in-cluster Keycloak pod)
 

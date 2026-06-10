@@ -120,7 +120,7 @@ class LockerSimEngineTest {
         assertEquals(SimSessionState.HAND_OUT_DOOR_OPEN, start.state)
         assertEquals(true, start.parcelPresent)
         val comp = assertNotNull(start.compartment)
-        assertEquals("C3", comp.label)
+        assertEquals(ParcelSize.M, comp.size) // preloaded in the first M compartment
 
         engine.door(comp.nr, DoorAction.CLOSE)
         val confirmed = engine.handOutConfirm(MutationRequest(init.sessionId, 3))
@@ -138,15 +138,34 @@ class LockerSimEngineTest {
     }
 
     @Test
-    fun `BIG config has 22 compartments with every size and exactly 2 XXL with back doors`() {
+    fun `generated configs fill every column exactly and decay toward big sizes`() {
         val state = engine.fullState()
         assertEquals("BIG", state.config)
-        assertEquals(22, state.compartments.size)
         assertEquals(ParcelSize.entries.toSet(), state.compartments.map { it.size }.toSet())
         val xxl = state.compartments.filter { it.size == ParcelSize.XXL }
-        assertEquals(2, xxl.size)
         assertTrue(xxl.all { it.backAddress != null }, "XXL compartments have back doors")
         assertFalse(state.compartments.any { it.size != ParcelSize.XXL && it.backAddress != null })
+
+        for (config in LockerConfigurations.byName.values) {
+            // every column packs to exactly the fictional machine height
+            config.groupBy { it.column }.values.forEach { column ->
+                assertEquals(
+                    LockerConfigurations.COLUMN_HEIGHT_CM,
+                    column.sumOf { LockerConfigurations.DOOR_PITCH_CM.getValue(it.size) },
+                )
+            }
+            // commercial space management: counts decay toward big sizes.
+            // The 5cm sliver fix may shift a door per column one size up,
+            // hence the tolerance of one column count.
+            val counts = config.groupingBy { it.size }.eachCount()
+            val columns = config.maxOf { it.column }
+            ParcelSize.entries.zipWithNext().forEach { (smaller, bigger) ->
+                assertTrue(
+                    (counts[smaller] ?: 0) + columns >= (counts[bigger] ?: 0),
+                    "$smaller (${counts[smaller]}) should not be much rarer than $bigger (${counts[bigger]})",
+                )
+            }
+        }
     }
 
     @Test

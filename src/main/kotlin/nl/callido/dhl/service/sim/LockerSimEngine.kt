@@ -125,6 +125,7 @@ class LockerSimEngine {
         mutate("hand-in/attempt", SimEvent.HAND_IN_ATTEMPT, req) { s ->
             val barcode = req.barcode ?: throw SimEngineRejectedException("MISSING_BARCODE", "barcode is required")
             val size = req.size ?: throw SimEngineRejectedException("MISSING_SIZE", "size is required")
+            requireAllDoorsClosed()
             val comp = selectCompartment(barcode, size, honourFailure = true)
                 ?: throw SimEngineRejectedException("NO_COMPARTMENT_AVAILABLE", "no free compartment for size $size")
             comp.state = CompartmentState.DOOR_OPEN
@@ -190,6 +191,7 @@ class LockerSimEngine {
     fun handOutStart(req: MutationRequest): SimSessionSnapshot =
         mutate("hand-out/start", SimEvent.HAND_OUT_START, req) { s ->
             val barcode = req.barcode ?: throw SimEngineRejectedException("MISSING_BARCODE", "barcode is required")
+            requireAllDoorsClosed()
             val comp = compartments.find { it.state == CompartmentState.OCCUPIED && it.barcode == barcode }
                 ?: throw SimEngineRejectedException("UNKNOWN_PARCEL", "no occupied compartment holds $barcode")
             comp.state = CompartmentState.DOOR_OPEN
@@ -278,6 +280,14 @@ class LockerSimEngine {
             return snapshot(Extras(comp, failure = "DOOR_STUCK"))
         }
         if (comp.spec.nr != activeNr) {
+            if (comp.state == CompartmentState.DOOR_OPEN) {
+                // Orphaned door from an abandoned session: shutting it frees
+                // the compartment again (the parcel left with the courier).
+                comp.state = CompartmentState.FREE
+                comp.barcode = null
+                log("sim/door", "orphaned compartment ${comp.spec.label} closed")
+                return snapshot(Extras(comp))
+            }
             throw SimEngineRejectedException("WRONG_COMPARTMENT", "compartment $compartmentNr is not part of the current action")
         }
         return when (s.state) {
@@ -385,6 +395,17 @@ class LockerSimEngine {
             free.filter { it.spec.size < minSize }.maxByOrNull { it.spec.size }?.let { return it }
         }
         return free.filter { it.spec.size >= minSize }.minByOrNull { it.spec.size }
+    }
+
+    /**
+     * A real machine never opens a second door: a courier in front of two
+     * open compartments is a recipe for parcels in the wrong vak. Any
+     * door-opening action is rejected until every door is shut.
+     */
+    private fun requireAllDoorsClosed() {
+        compartments.find { it.state == CompartmentState.DOOR_OPEN }?.let {
+            throw SimEngineRejectedException("DOOR_STILL_OPEN", "close compartment ${it.spec.label} first")
+        }
     }
 
     private fun requireSession(sessionId: String): SimSession =
