@@ -28,7 +28,7 @@ class LockerSessionController(private val service: LockerSessionService) {
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     suspend fun create(@RequestBody req: CreateSessionRequest, @AuthenticationPrincipal jwt: Jwt): CreateSessionResponse =
-        service.create(req.stopId, jwt.getClaimAsString("preferred_username") ?: jwt.subject ?: "unknown")
+        service.create(req.stopId, LockerSessionService.courierId(jwt))
 
     @GetMapping("/{id}")
     suspend fun status(@PathVariable id: UUID): SessionStatusDto = service.status(id)

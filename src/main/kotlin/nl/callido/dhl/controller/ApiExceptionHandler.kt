@@ -9,6 +9,7 @@ import nl.callido.dhl.controller.sim.SimProxyController
 import nl.callido.dhl.controller.trips.TripController
 import nl.callido.dhl.dto.ErrorMessage
 import nl.callido.dhl.dto.sim.RejectionResponse
+import nl.callido.dhl.service.locker.SessionForbiddenException
 import org.slf4j.LoggerFactory
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
@@ -42,6 +43,10 @@ class ApiExceptionHandler {
     @ExceptionHandler(SimRejectedException::class)
     fun rejected(e: SimRejectedException): ResponseEntity<RejectionResponse> =
         ResponseEntity.unprocessableEntity().body(RejectionResponse(e.code, e.message))
+
+    @ExceptionHandler(SessionForbiddenException::class)
+    fun forbidden(e: SessionForbiddenException): ResponseEntity<ErrorMessage> =
+        ResponseEntity.status(HttpStatus.FORBIDDEN).body(ErrorMessage("Geen toegang tot deze sessie"))
 
     @ExceptionHandler(NoSuchElementException::class)
     fun notFound(e: NoSuchElementException): ResponseEntity<ErrorMessage> =

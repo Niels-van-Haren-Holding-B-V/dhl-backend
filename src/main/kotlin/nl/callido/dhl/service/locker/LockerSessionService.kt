@@ -1,6 +1,7 @@
 package nl.callido.dhl.service.locker
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.reactor.awaitSingleOrNull
 import kotlinx.coroutines.withContext
 import nl.callido.dhl.client.LockerSimClient
 import nl.callido.dhl.client.SimConflictException
@@ -19,6 +20,9 @@ import nl.callido.dhl.repository.LockerSessionRepository
 import nl.callido.dhl.repository.ParcelRepository
 import nl.callido.dhl.repository.StopRepository
 import nl.callido.dhl.service.delivery.DeliveryService
+import org.springframework.security.core.context.ReactiveSecurityContextHolder
+import org.springframework.security.oauth2.jwt.Jwt
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken
 import org.springframework.stereotype.Service
 import java.time.Instant
 import java.util.UUID
@@ -41,6 +45,16 @@ class LockerSessionService(
     private val locks: SessionLocks,
 ) {
 
+    companion object {
+        /**
+         * The single definition of the courier's identity — [create] stores
+         * it, [loadOwned] enforces it; they MUST agree. Keycloak puts the
+         * human-readable username in preferred_username; the raw subject is
+         * a realm UUID.
+         */
+        fun courierId(jwt: Jwt): String = jwt.getClaimAsString("preferred_username") ?: jwt.subject ?: "unknown"
+    }
+
     suspend fun create(stopId: UUID, courierId: String): CreateSessionResponse {
         val stop = io { stops.findById(stopId).orElseThrow { NoSuchElementException("stop $stopId not found") } }
         require(stop.deliveryLocationType == DeliveryLocationType.LOCKER) { "stop $stopId is not a locker stop" }
@@ -56,7 +70,7 @@ class LockerSessionService(
     }
 
     suspend fun status(id: UUID): SessionStatusDto {
-        val session = io { load(id) }
+        val session = loadOwned(id)
         val remote = client.status(session.externalSessionId)
         // Status polls deliberately do NOT touch lastActivityAt: an open
         // browser tab must not keep a walked-away session alive forever.
@@ -64,7 +78,7 @@ class LockerSessionService(
     }
 
     suspend fun validate(id: UUID, barcode: String): ValidationResultDto = locks.withSessionLock(id) {
-        val session = io { load(id) }
+        val session = loadOwned(id)
         val parcel = io { parcels.findByBarcode(barcode) }
             ?: return@withSessionLock ValidationResultDto(barcode, valid = false, reason = "UNKNOWN_BARCODE")
         val result = client.validate(ValidateRequest(session.externalSessionId, barcode, parcel.size))
@@ -149,7 +163,7 @@ class LockerSessionService(
         afterSuccess: ((LockerSession) -> Unit)? = null,
         call: suspend (LockerSession, Int) -> SimSessionSnapshot,
     ): LockerActionResponse = locks.withSessionLock(id) {
-        val session = io { load(id) }
+        val session = loadOwned(id)
         check(session.status == LockerSessionStatus.ACTIVE) { "session $id is ${session.status}" }
         try {
             val version = client.status(session.externalSessionId).version
@@ -185,6 +199,22 @@ class LockerSessionService(
     private fun touch(session: LockerSession) {
         session.lastActivityAt = Instant.now()
         sessions.save(session)
+    }
+
+    /**
+     * Ownership lives HERE, at the one load site every HTTP entry point goes
+     * through — not scattered over controllers. The JWT subject must match
+     * the courier that created the session. Internal callers without a
+     * request context (the reaper finishes sessions on a scheduler thread)
+     * use the repositories directly and never pass this gate.
+     */
+    private suspend fun loadOwned(id: UUID): LockerSession {
+        val session = io { load(id) }
+        val caller = ReactiveSecurityContextHolder.getContext()
+            .mapNotNull { (it.authentication as? JwtAuthenticationToken)?.token?.let(::courierId) }
+            .awaitSingleOrNull()
+        if (caller == null || session.courierId != caller) throw SessionForbiddenException()
+        return session
     }
 
     private fun load(id: UUID): LockerSession = sessions.findById(id).orElseThrow { NoSuchElementException("locker session $id not found") }

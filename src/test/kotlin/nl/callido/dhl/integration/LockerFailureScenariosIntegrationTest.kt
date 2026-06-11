@@ -94,7 +94,10 @@ class LockerFailureScenariosIntegrationTest {
             )
         }
 
-        @JvmStatic fun stubCourierDecoder(): ReactiveJwtDecoder = stubDecoder("koerier")
+        // subject = the bearer token value, so tests can act as different couriers
+        @JvmStatic fun stubCourierDecoder(): ReactiveJwtDecoder = ReactiveJwtDecoder { token ->
+            stubDecoder(token).decode(token)
+        }
 
         @JvmStatic fun stubLockerDecoder(): ReactiveJwtDecoder = stubDecoder("dhl-backend")
 
@@ -309,6 +312,58 @@ class LockerFailureScenariosIntegrationTest {
         )
     }
 
+    @Test
+    fun `another courier cannot read or mutate a session they do not own`() {
+        val session = startBoundSession() // owned by subject "test-token"
+
+        // courier B mutates A's session → constant 403, nothing leaks
+        val foreignAttempt = http.post().uri("/api/locker/sessions/${session.sessionId}/hand-in/attempt")
+            .headers { it.setBearerAuth("courier-B") }
+            .contentType(MediaType.APPLICATION_JSON)
+            .body(LockerActionRequest("DHL-IN-001"))
+            .retrieve().toEntity(Map::class.java)
+        assertEquals(403, foreignAttempt.statusCode.value())
+        assertEquals("Geen toegang tot deze sessie", foreignAttempt.body!!["message"])
+
+        // status is gated by the same check
+        val foreignStatus = http.get().uri("/api/locker/sessions/${session.sessionId}")
+            .headers { it.setBearerAuth("courier-B") }
+            .retrieve().toEntity(Map::class.java)
+        assertEquals(403, foreignStatus.statusCode.value())
+
+        // the session is untouched: still ACTIVE, no door opened, nothing registered
+        assertEquals(
+            "ACTIVE",
+            jdbc.queryForObject("select status from locker_session where id = ?", String::class.java, session.sessionId),
+        )
+        val machine = get("/api/sim/state", SimStateSnapshot::class.java)
+        assertEquals(0, machine.compartments.count { it.state.name == "DOOR_OPEN" })
+        assertEquals(
+            0,
+            jdbc.queryForObject(
+                "select count(*) from delivery_registration where session_id = ?",
+                Int::class.java,
+                session.sessionId,
+            ),
+        )
+        assertEquals(0, jdbc.queryForObject("select count(*) from outbox", Int::class.java))
+
+        // the owner is unaffected and continues normally
+        val owned = post(
+            "/api/locker/sessions/${session.sessionId}/hand-in/attempt",
+            LockerActionRequest("DHL-IN-001"),
+            LockerActionResponse::class.java,
+        ).body!!
+        assertEquals(SimSessionState.HAND_IN_DOOR_OPEN, owned.simState)
+        post("/api/sim/door", DoorRequest(assertNotNull(owned.compartment).nr, DoorAction.CLOSE), SimSessionSnapshot::class.java)
+    }
+
+    /**
+     * Doubles as the ownership-gate counterpart: the reaper runs on a
+     * scheduler thread with NO authenticated courier and must still be able
+     * to finish expired sessions — it talks to the sim client and the
+     * repositories directly and never passes the per-request ownership check.
+     */
     @Test
     fun `the reaper expires an abandoned session and registers NOT_DELIVERED for open parcels`() {
         val session = startBoundSession()
