@@ -35,6 +35,13 @@ management:
       exposure:
         include: health,info
 
+# OpenAPI docs are dev-only: client generation runs against a local backend.
+springdoc:
+  api-docs:
+    enabled: ${OPENAPI_ENABLED:false}
+  swagger-ui:
+    enabled: ${OPENAPI_ENABLED:false}
+
 dhl:
   backend:
     # false in the k3s locker-sim deployment: that pod only serves /locker-api

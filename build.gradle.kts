@@ -78,6 +78,8 @@ tasks.withType<Test> {
 // whitelisted keys: the rest of .env holds PROD values (e.g. DB_PASSWORD)
 // that must not leak into the local run. Real env vars win.
 tasks.named<org.springframework.boot.gradle.tasks.run.BootRun>("bootRun") {
+    // OpenAPI docs are dev-only; the local run is the place they exist
+    if (System.getenv("OPENAPI_ENABLED") == null) environment("OPENAPI_ENABLED", "true")
     val wanted = setOf("LOCKER_CLIENT_SECRET")
     val envFile = file("infra/.env")
     if (envFile.exists()) {

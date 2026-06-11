@@ -1,5 +1,6 @@
 package nl.callido.dhl.config
 
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.core.annotation.Order
@@ -28,7 +29,12 @@ import org.springframework.web.cors.reactive.UrlBasedCorsConfigurationSource
  */
 @Configuration
 @EnableWebFluxSecurity
-class SecurityConfig(private val props: DhlProperties) {
+class SecurityConfig(
+    private val props: DhlProperties,
+    // docs endpoints exist only in dev (OPENAPI_ENABLED); their anonymous
+    // carve-out must come and go with them — no leftover hole by default
+    @param:Value("\${springdoc.api-docs.enabled:false}") private val openApiEnabled: Boolean,
+) {
 
     @Bean
     fun courierJwtDecoder(): ReactiveJwtDecoder = decoder(props.security.courierIssuer, props.security.courierJwks)
@@ -48,19 +54,26 @@ class SecurityConfig(private val props: DhlProperties) {
 
     @Bean
     @Order(0)
-    fun publicChain(http: ServerHttpSecurity): SecurityWebFilterChain = http
-        .securityMatcher(
-            pathMatchers("/actuator/health", "/actuator/health/**", "/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html", "/webjars/**"),
-        )
-        .authorizeExchange { it.anyExchange().permitAll() }
-        .csrf { it.disable() }
-        .build()
+    fun publicChain(http: ServerHttpSecurity): SecurityWebFilterChain {
+        // health stays anonymous: kubelet probes and the CI smoke check
+        val open = mutableListOf("/actuator/health", "/actuator/health/**")
+        if (openApiEnabled) {
+            // dev-only: npm run generate fetches the spec without a token
+            open += listOf("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html", "/webjars/**")
+        }
+        return http
+            .securityMatcher(pathMatchers(*open.toTypedArray()))
+            .authorizeExchange { it.anyExchange().permitAll() }
+            .csrf { it.disable() }
+            .build()
+    }
 
     @Bean
     @Order(1)
     fun courierChain(http: ServerHttpSecurity, courierJwtDecoder: ReactiveJwtDecoder): SecurityWebFilterChain = http
         .securityMatcher(pathMatchers("/api/**"))
         .authorizeExchange {
+            // CORS preflights carry no credentials by spec
             it.pathMatchers(HttpMethod.OPTIONS).permitAll()
             it.anyExchange().authenticated()
         }

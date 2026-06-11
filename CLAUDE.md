@@ -288,6 +288,12 @@ curl -s https://dhl-auth.vanharen-it.nl/realms/courier/.well-known/openid-config
 curl -s https://dhl-api.vanharen-it.nl/actuator/health
 ```
 
+OpenAPI docs (`/v3/api-docs`, swagger-ui) sit behind `OPENAPI_ENABLED`
+(default OFF — locker-sim pod, tests and any unconfigured run expose
+nothing). bootRun enables it for local client generation, and the demo
+deployment opts in EXPLICITLY (env + ingress in backend.yaml) because the
+spec is shared with the technical reviewers.
+
 ## CI
 
 GitHub Actions on main: build + push ghcr.io/<user>/dhl-backend, then a deploy

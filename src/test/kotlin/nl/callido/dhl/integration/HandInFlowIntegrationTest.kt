@@ -164,6 +164,17 @@ class HandInFlowIntegrationTest {
     }
 
     @Test
+    @Order(1)
+    fun `OpenAPI endpoints are unreachable under the default config`() {
+        // OPENAPI_ENABLED defaults to false: springdoc is off AND the public
+        // chain carves out no docs paths — the deny-all catch-all answers
+        for (path in listOf("/v3/api-docs", "/swagger-ui.html", "/swagger-ui/index.html", "/webjars/x.js")) {
+            val response = http.get().uri(path).retrieve().toBodilessEntity()
+            assertEquals(401, response.statusCode.value(), "$path must not be anonymously reachable")
+        }
+    }
+
+    @Test
     @Order(2)
     fun `full hand-in happy path produces registration, outbox row and Kafka message`() {
         post("/api/sim/reset", ResetRequest(), SimStateSnapshot::class.java)
