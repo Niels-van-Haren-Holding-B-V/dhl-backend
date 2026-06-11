@@ -112,3 +112,18 @@ spec:
                 name: dhl-backend
                 port:
                   number: 8080
+          # Swagger UI (springdoc) — the API documents itself at its own origin
+          - path: /swagger-ui
+            pathType: Prefix
+            backend:
+              service:
+                name: dhl-backend
+                port:
+                  number: 8080
+          - path: /webjars
+            pathType: Prefix
+            backend:
+              service:
+                name: dhl-backend
+                port:
+                  number: 8080
