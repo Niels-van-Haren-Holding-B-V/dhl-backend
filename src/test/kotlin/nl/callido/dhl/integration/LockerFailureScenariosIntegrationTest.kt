@@ -180,6 +180,9 @@ class LockerFailureScenariosIntegrationTest {
         ).body!!
         assertEquals(SimSessionState.READY, reported.simState)
 
+        // doors are physical: the too-small door is still open — close it first
+        post("/api/sim/door", DoorRequest(firstDoor.nr, DoorAction.CLOSE), SimSessionSnapshot::class.java)
+
         val retry = post(
             "/api/locker/sessions/${session.sessionId}/hand-in/attempt",
             LockerActionRequest("DHL-IN-002"),

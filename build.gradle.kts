@@ -73,18 +73,20 @@ tasks.withType<Test> {
     useJUnitPlatform()
 }
 
-// Local dev: bootRun loads the secrets from infra/.env itself (gitignored),
-// so `./gradlew bootRun` and IDE gradle runs just work. Real env vars win.
+// Local dev: bootRun reads the secrets it needs from infra/.env itself
+// (gitignored), so `./gradlew bootRun` and IDE gradle runs just work. Only
+// whitelisted keys: the rest of .env holds PROD values (e.g. DB_PASSWORD)
+// that must not leak into the local run. Real env vars win.
 tasks.named<org.springframework.boot.gradle.tasks.run.BootRun>("bootRun") {
+    val wanted = setOf("LOCKER_CLIENT_SECRET")
     val envFile = file("infra/.env")
     if (envFile.exists()) {
         envFile.readLines()
             .map { it.trim() }
-            .filter { it.isNotEmpty() && !it.startsWith("#") && it.contains("=") }
+            .filter { it.substringBefore("=") in wanted }
             .forEach { line ->
                 val key = line.substringBefore("=")
-                val value = line.substringAfter("=")
-                if (System.getenv(key) == null) environment(key, value)
+                if (System.getenv(key) == null) environment(key, line.substringAfter("="))
             }
     }
 }

@@ -110,6 +110,18 @@ class LockerSimEngineTest {
         val reported = engine.handInReportSize(MutationRequest(init.sessionId, 2))
         assertEquals(SimSessionState.READY, reported.state)
 
+        // the too-small door is still physically open: retry is blocked until
+        // it is closed, and closing it frees the compartment
+        val blocked = assertThrows<SimEngineRejectedException> {
+            engine.handInAttempt(MutationRequest(init.sessionId, 3, "DHL-IN-002", ParcelSize.L))
+        }
+        assertEquals("DOOR_STILL_OPEN", blocked.code)
+        engine.door(small.nr, DoorAction.CLOSE)
+        assertEquals(
+            CompartmentState.FREE,
+            engine.fullState().compartments.single { it.nr == small.nr }.state,
+        )
+
         val retry = engine.handInAttempt(MutationRequest(init.sessionId, 3, "DHL-IN-002", ParcelSize.L))
         val bigger = assertNotNull(retry.compartment)
         assertTrue(bigger.size > small.size, "retry must use a bigger compartment than the reported ${small.size}")

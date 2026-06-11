@@ -164,8 +164,10 @@ class LockerSimEngine {
         mutate("hand-in/report-incorrect-compartment-size", SimEvent.HAND_IN_REPORT_SIZE, req) { s ->
             val comp = activeCompartment()
             comp.barcode?.let { sizeHints[it] = comp.spec.size }
-            comp.state = CompartmentState.FREE
+            // the parcel never went in: the DOOR STAYS PHYSICALLY OPEN, but
+            // closing it must free the compartment, not re-occupy it
             comp.barcode = null
+            comp.openedFrom = CompartmentState.FREE
             activeNr = null
             s.state = SimSessionState.READY
             Extras(comp)
@@ -221,8 +223,10 @@ class LockerSimEngine {
     fun handOutReportMissing(req: MutationRequest): SimSessionSnapshot =
         mutate("hand-out/report-missing", SimEvent.HAND_OUT_REPORT_MISSING, req) { s ->
             val comp = activeCompartment()
-            comp.state = CompartmentState.FREE
+            // the compartment turned out empty: the DOOR STAYS PHYSICALLY
+            // OPEN; closing it frees the compartment instead of re-occupying
             comp.barcode = null
+            comp.openedFrom = CompartmentState.FREE
             activeNr = null
             s.state = SimSessionState.READY
             Extras(comp)
