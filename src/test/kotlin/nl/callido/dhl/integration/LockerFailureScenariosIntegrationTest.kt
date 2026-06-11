@@ -427,6 +427,27 @@ class LockerFailureScenariosIntegrationTest {
     }
 
     @Test
+    fun `error bodies are constant - internal ids and states never leak`() {
+        // unknown session: 404 without echoing the id
+        val unknown = http.get().uri("/api/locker/sessions/${java.util.UUID.randomUUID()}")
+            .headers { it.setBearerAuth("test-token") }
+            .retrieve().toEntity(Map::class.java)
+        assertEquals(404, unknown.statusCode.value())
+        assertEquals("Niet gevonden", unknown.body!!["message"])
+
+        // finished session: 409 without echoing the session state
+        val session = startBoundSession()
+        post("/api/locker/sessions/${session.sessionId}/finish", null, LockerActionResponse::class.java)
+        val onFinished = post(
+            "/api/locker/sessions/${session.sessionId}/hand-in/attempt",
+            LockerActionRequest("DHL-IN-001"),
+            Map::class.java,
+        )
+        assertEquals(409, onFinished.statusCode.value())
+        assertEquals("Sessie is niet meer actief", onFinished.body!!["message"])
+    }
+
+    @Test
     fun `announcing a parcel with impossible dimensions is a 400 and reserves nothing`() {
         val response = post(
             "/api/sim/parcels",

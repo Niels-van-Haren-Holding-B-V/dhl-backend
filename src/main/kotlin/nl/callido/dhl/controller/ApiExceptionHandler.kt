@@ -10,6 +10,7 @@ import nl.callido.dhl.controller.trips.TripController
 import nl.callido.dhl.dto.ErrorMessage
 import nl.callido.dhl.dto.sim.RejectionResponse
 import nl.callido.dhl.service.locker.SessionForbiddenException
+import nl.callido.dhl.service.locker.SessionNotActiveException
 import org.slf4j.LoggerFactory
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
@@ -53,11 +54,22 @@ class ApiExceptionHandler {
     fun invalidBody(e: WebExchangeBindException): ResponseEntity<ErrorMessage> =
         ResponseEntity.badRequest().body(ErrorMessage("Ongeldig verzoek"))
 
-    @ExceptionHandler(NoSuchElementException::class)
-    fun notFound(e: NoSuchElementException): ResponseEntity<ErrorMessage> =
-        ResponseEntity.status(HttpStatus.NOT_FOUND).body(ErrorMessage(e.message ?: "not found"))
+    @ExceptionHandler(SessionNotActiveException::class)
+    fun notActive(e: SessionNotActiveException): ResponseEntity<ErrorMessage> =
+        ResponseEntity.status(HttpStatus.CONFLICT).body(ErrorMessage("Sessie is niet meer actief"))
 
-    @ExceptionHandler(IllegalArgumentException::class, IllegalStateException::class)
-    fun badRequest(e: Exception): ResponseEntity<ErrorMessage> =
-        ResponseEntity.badRequest().body(ErrorMessage(e.message ?: "invalid request"))
+    // Exception messages carry internals (ids, states) and are for the log,
+    // never for the response body. IllegalStateException deliberately has NO
+    // mapping anymore: an unexpected state is a bug and should surface as 500.
+    @ExceptionHandler(NoSuchElementException::class)
+    fun notFound(e: NoSuchElementException): ResponseEntity<ErrorMessage> {
+        log.debug("not found: {}", e.message)
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ErrorMessage("Niet gevonden"))
+    }
+
+    @ExceptionHandler(IllegalArgumentException::class)
+    fun badRequest(e: IllegalArgumentException): ResponseEntity<ErrorMessage> {
+        log.debug("bad request: {}", e.message)
+        return ResponseEntity.badRequest().body(ErrorMessage("Ongeldig verzoek"))
+    }
 }

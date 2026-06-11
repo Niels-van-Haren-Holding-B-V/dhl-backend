@@ -164,7 +164,7 @@ class LockerSessionService(
         call: suspend (LockerSession, Int) -> SimSessionSnapshot,
     ): LockerActionResponse = locks.withSessionLock(id) {
         val session = loadOwned(id)
-        check(session.status == LockerSessionStatus.ACTIVE) { "session $id is ${session.status}" }
+        if (session.status != LockerSessionStatus.ACTIVE) throw SessionNotActiveException(session.status)
         try {
             val version = client.status(session.externalSessionId).version
             val snapshot = call(session, version)
