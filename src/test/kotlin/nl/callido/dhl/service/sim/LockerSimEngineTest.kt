@@ -231,6 +231,30 @@ class LockerSimEngineTest {
     }
 
     @Test
+    fun `defect door does not block subsequent hand-ins`() {
+        val init = engine.init()
+        engine.bind(init.qrCode)
+        val attempt = engine.handInAttempt(MutationRequest(init.sessionId, 1, "DHL-IN-001", ParcelSize.S))
+        val defectNr = assertNotNull(attempt.compartment).nr
+
+        // the door jams: the courier reports a compartment issue — the door
+        // stays physically open, the compartment goes out of service
+        val reported = engine.handInReportIssue(MutationRequest(init.sessionId, 2))
+        assertEquals(SimSessionState.READY, reported.state)
+        assertEquals(
+            CompartmentState.DEFECT,
+            engine.fullState().compartments.single { it.nr == defectNr }.state,
+        )
+
+        // deliberate: one broken compartment must not brick the machine —
+        // the next attempt proceeds and opens a DIFFERENT door
+        val retry = engine.handInAttempt(MutationRequest(init.sessionId, 3, "DHL-IN-001", ParcelSize.S))
+        val second = assertNotNull(retry.compartment)
+        assertTrue(second.nr != defectNr, "retry must avoid the defect compartment")
+        assertEquals(CompartmentState.DOOR_OPEN, second.state)
+    }
+
+    @Test
     fun `walkaway after a reopen keeps the compartment occupied with its parcel`() {
         val init = engine.init()
         engine.bind(init.qrCode)

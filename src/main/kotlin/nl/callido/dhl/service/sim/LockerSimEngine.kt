@@ -15,6 +15,7 @@ import nl.callido.dhl.dto.sim.SimStateSnapshot
 import nl.callido.dhl.dto.sim.StatusResponse
 import nl.callido.dhl.dto.sim.ValidateRequest
 import nl.callido.dhl.dto.sim.ValidateResponse
+import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
 import java.time.Instant
 import java.util.EnumSet
@@ -27,6 +28,8 @@ import java.util.UUID
  */
 @Component
 class LockerSimEngine {
+
+    private val logger = LoggerFactory.getLogger(javaClass)
 
     private class SimSession(val id: String, val qrCode: String, var state: SimSessionState, var version: Int, var boundAt: Instant?)
 
@@ -450,9 +453,21 @@ class LockerSimEngine {
         return reserved
     }
 
+    /**
+     * Doors are physical: any DOOR_OPEN compartment blocks every
+     * door-opening action. DEFECT compartments are deliberately EXEMPT even
+     * though a door reported as defect may well still be physically open
+     * (report-compartment-issue leaves it open): one broken compartment
+     * must not take the whole machine out of service. Field service closes
+     * and repairs it; until then the machine proceeds and we warn.
+     */
     private fun requireAllDoorsClosed() {
         compartments.find { it.state == CompartmentState.DOOR_OPEN }?.let {
             throw SimEngineRejectedException("DOOR_STILL_OPEN", "close compartment ${it.spec.label} first")
+        }
+        val defects = compartments.count { it.state == CompartmentState.DEFECT }
+        if (defects > 0) {
+            logger.warn("proceeding with {} defect compartment(s); a defect door may still be physically open", defects)
         }
     }
 
