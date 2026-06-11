@@ -53,7 +53,7 @@ dhl:
   locker-client:
     token-uri: ${LOCKER_TOKEN_URI:http://localhost:12081/realms/locker/protocol/openid-connect/token}
     client-id: ${LOCKER_CLIENT_ID:dhl-backend}
-    client-secret: ${LOCKER_CLIENT_SECRET:locker-demo-secret}
+    client-secret: ${LOCKER_CLIENT_SECRET:}
   sim-passthrough:
     enabled: ${SIM_ENABLED:true}
   reaper:

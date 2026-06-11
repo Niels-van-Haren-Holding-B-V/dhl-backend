@@ -13,6 +13,37 @@ spec:
       labels:
         app: keycloak
     spec:
+      # The realm JSONs in git contain ${...} placeholders instead of secrets;
+      # this init step renders them before Keycloak imports them (Keycloak
+      # itself does no env substitution on import).
+      initContainers:
+        - name: render-realms
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - >
+              for f in /in/*.json; do
+              sed -e "s|\${DEMO_USER_PASSWORD}|$DEMO_USER_PASSWORD|g"
+              -e "s|\${LOCKER_CLIENT_SECRET}|$LOCKER_CLIENT_SECRET|g"
+              "$f" > /out/$(basename "$f"); done
+          env:
+            - name: DEMO_USER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: dhl-secrets
+                  key: demo-user-password
+            - name: LOCKER_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: dhl-secrets
+                  key: locker-client-secret
+          volumeMounts:
+            - name: realms
+              mountPath: /in
+              readOnly: true
+            - name: realms-rendered
+              mountPath: /out
       containers:
         - name: keycloak
           image: quay.io/keycloak/keycloak:26.4
@@ -34,7 +65,7 @@ spec:
           ports:
             - containerPort: 8080
           volumeMounts:
-            - name: realms
+            - name: realms-rendered
               mountPath: /opt/keycloak/data/import
               readOnly: true
           resources:
@@ -46,6 +77,8 @@ spec:
         - name: realms
           configMap:
             name: keycloak-realms
+        - name: realms-rendered
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service

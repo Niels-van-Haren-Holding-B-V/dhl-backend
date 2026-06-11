@@ -8,6 +8,7 @@ kubectl -n dhl-demo create secret generic dhl-secrets \
   --from-literal=db-password="$DB_PASSWORD" \
   --from-literal=keycloak-admin-password="$KEYCLOAK_ADMIN_PASSWORD" \
   --from-literal=locker-client-secret="$LOCKER_CLIENT_SECRET" \
+  --from-literal=demo-user-password="$DEMO_USER_PASSWORD" \
   --dry-run=client -o yaml | kubectl apply -f -
 
 kubectl -n dhl-demo create secret docker-registry ghcr \

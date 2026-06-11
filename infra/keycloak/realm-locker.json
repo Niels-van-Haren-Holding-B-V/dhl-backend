@@ -12,7 +12,7 @@
       "serviceAccountsEnabled": true,
       "standardFlowEnabled": false,
       "directAccessGrantsEnabled": false,
-      "secret": "locker-demo-secret"
+      "secret": "${LOCKER_CLIENT_SECRET}"
     }
   ]
 }

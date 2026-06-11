@@ -12,7 +12,7 @@
       "email": "koerier@example.com",
       "emailVerified": true,
       "credentials": [
-        { "type": "password", "value": "demo-password", "temporary": false }
+        { "type": "password", "value": "${DEMO_USER_PASSWORD}", "temporary": false }
       ]
     }
   ],

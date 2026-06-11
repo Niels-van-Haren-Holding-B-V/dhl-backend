@@ -66,7 +66,10 @@ controller/{trips,locker,delivery,sim}/
   `DHL_BACKEND_ENABLED`, `LOCKER_SIM_SERVE` (see application.yml). The parcel
   machine is ALWAYS the simulator — there is no real-machine mode.
 - Local dev: `docker compose -f infra/docker-compose.yml up -d` then
-  `./gradlew bootRun` — one process serves both APIs, talking to itself.
+  `set -a; source infra/.env; set +a; ./gradlew bootRun` — one process serves
+  both APIs, talking to itself. The env sourcing matters: secrets (e.g.
+  LOCKER_CLIENT_SECRET) have no defaults in application.yml; in the IDE, add
+  LOCKER_CLIENT_SECRET from infra/.env to the run configuration.
 - Tests: `./gradlew test` (state machine + engine unit tests run anywhere;
   integration tests need Docker, auto-skip without it).
 - Secrets for the demo server live in `infra/.env` (gitignored,
@@ -98,7 +101,9 @@ hand-out parcel DHL-OUT-001 is pre-loaded in the first M compartment.
   The token must never appear in any response, log, or error message.
 - Local dev: docker-compose Keycloak with `--import-realm`; realm JSONs live in
   /infra/keycloak/ (realm `courier`: public client `dhl-frontend` with PKCE,
-  user koerier/demo-password; realm `locker`: confidential client `dhl-backend`).
+  user koerier (password via DEMO_USER_PASSWORD); realm `locker`: confidential
+  client `dhl-backend` (secret via LOCKER_CLIENT_SECRET) — both substituted
+  from the env at realm import; values live in infra/.env, never in git).
 - All endpoints/secrets via env vars so one image serves compose and k3s
   (KEYCLOAK_ISSUER_COURIER, KEYCLOAK_ISSUER_LOCKER, LOCKER_CLIENT_SECRET, ...).
 

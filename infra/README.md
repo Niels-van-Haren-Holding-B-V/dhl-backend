@@ -18,7 +18,7 @@ docker compose -f infra/docker-compose.yml --profile full up -d --build
 curl -s localhost:12080/actuator/health
 ```
 
-Demo login (realm `courier`): `koerier` / `demo-password`.
+Demo login (realm `courier`): user `koerier`, password in `infra/.env` (`DEMO_USER_PASSWORD`).
 
 Watch the delivery events flow:
 

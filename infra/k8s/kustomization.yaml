@@ -27,4 +27,4 @@ generatorOptions:
 #   kubectl -n dhl-demo create secret generic dhl-secrets \
 #     --from-literal=db-password=... \
 #     --from-literal=keycloak-admin-password=... \
-#     --from-literal=locker-client-secret=locker-demo-secret
+#     --from-literal=locker-client-secret=... (see infra/.env / apply-secrets.sh)
