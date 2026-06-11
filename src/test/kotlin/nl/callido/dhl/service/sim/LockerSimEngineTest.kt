@@ -185,15 +185,24 @@ class LockerSimEngineTest {
         val attempt = engine.handInAttempt(MutationRequest(init.sessionId, 1, "DHL-IN-NEW", ParcelSize.S))
         assertEquals(reserved.nr, attempt.compartment!!.nr, "attempt must open the reserved door")
 
-        // courier walks away; a NEW session displaces the open door — but the
-        // reservation survives (it belongs to the parcel, not the session)
+        // courier walks away; a NEW session starts but doors are physical —
+        // the door STAYS open and blocks any door-opening action
         val init2 = engine.init()
+        engine.bind(init2.qrCode)
+        val stillOpen = engine.fullState().compartments.single { it.nr == reserved.nr }
+        assertEquals(CompartmentState.DOOR_OPEN, stillOpen.state, "software cannot close a physical door")
+        val rejected = assertThrows<SimEngineRejectedException> {
+            engine.handInAttempt(MutationRequest(init2.sessionId, 1, "DHL-IN-NEW", ParcelSize.S))
+        }
+        assertEquals("DOOR_STILL_OPEN", rejected.code)
+
+        // someone shuts the door: it reverts to RESERVED (the reservation
+        // belongs to the parcel, not the session) and the flow continues
+        engine.door(reserved.nr, DoorAction.CLOSE)
         val comp = engine.fullState().compartments.single { it.nr == reserved.nr }
-        assertEquals(CompartmentState.RESERVED, comp.state, "walkaway must revert the door to RESERVED")
+        assertEquals(CompartmentState.RESERVED, comp.state)
         assertEquals("DHL-IN-NEW", comp.barcode)
 
-        // and the next session still lands in the same door
-        engine.bind(init2.qrCode)
         val retry = engine.handInAttempt(MutationRequest(init2.sessionId, 1, "DHL-IN-NEW", ParcelSize.S))
         assertEquals(reserved.nr, retry.compartment!!.nr)
     }

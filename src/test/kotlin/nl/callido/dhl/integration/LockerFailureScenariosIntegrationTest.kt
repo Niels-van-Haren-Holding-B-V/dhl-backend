@@ -12,6 +12,7 @@ import nl.callido.dhl.dto.sim.DoorAction
 import nl.callido.dhl.dto.sim.DoorRequest
 import nl.callido.dhl.dto.sim.FailureMode
 import nl.callido.dhl.dto.sim.FailureRequest
+import nl.callido.dhl.dto.sim.RejectionResponse
 import nl.callido.dhl.dto.sim.ResetRequest
 import nl.callido.dhl.dto.sim.SimSessionSnapshot
 import nl.callido.dhl.dto.sim.SimSessionState
@@ -201,7 +202,7 @@ class LockerFailureScenariosIntegrationTest {
             LockerActionResponse::class.java,
         ).body!!
         assertEquals(SimSessionState.HAND_IN_DOOR_OPEN, first.simState)
-        assertNotNull(first.compartment)
+        val openNr = assertNotNull(first.compartment).nr
 
         // the same session cannot open a second door: state machine blocks the
         // attempt and the response carries the current (reconciled) truth
@@ -213,11 +214,21 @@ class LockerFailureScenariosIntegrationTest {
         assertEquals(200, second.statusCode.value())
         assertEquals(true, second.body!!.reconciled, "second attempt must reconcile, not open a door")
 
-        // a NEW session displaces the dangling one: init frees the abandoned
-        // door (demo-friendly), so the fresh attempt opens a door again —
-        // but the machine-wide invariant holds: never more than ONE open door
+        // the courier walks away with the door open; a NEW courier arrives.
+        // Doors are physical — the abandoned door is still open, so the new
+        // session's attempt is rejected with DOOR_STILL_OPEN
         post("/api/locker/sessions/${session.sessionId}/finish", null, LockerActionResponse::class.java)
         val session2 = startBoundSession()
+        val rejected = http.post().uri("/api/locker/sessions/${session2.sessionId}/hand-in/attempt")
+            .headers { it.setBearerAuth("test-token") }
+            .contentType(MediaType.APPLICATION_JSON)
+            .body(LockerActionRequest("DHL-IN-002"))
+            .retrieve().toEntity(RejectionResponse::class.java)
+        assertEquals(422, rejected.statusCode.value())
+        assertEquals("DOOR_STILL_OPEN", rejected.body!!.code)
+
+        // someone closes the abandoned door — now the flow continues
+        post("/api/sim/door", DoorRequest(openNr, DoorAction.CLOSE), SimSessionSnapshot::class.java)
         val fresh = post(
             "/api/locker/sessions/${session2.sessionId}/hand-in/attempt",
             LockerActionRequest("DHL-IN-002"),
@@ -232,7 +243,6 @@ class LockerFailureScenariosIntegrationTest {
             "the machine must never have more than one door open",
         )
 
-        // and the close path works through the BFF passthrough
         post("/api/sim/door", DoorRequest(assertNotNull(fresh.compartment).nr, DoorAction.CLOSE), SimSessionSnapshot::class.java)
     }
 

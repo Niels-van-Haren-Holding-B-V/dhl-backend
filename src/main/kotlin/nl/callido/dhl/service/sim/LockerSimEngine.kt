@@ -74,11 +74,10 @@ class LockerSimEngine {
     @Synchronized
     fun init(): InitResponse {
         maybeDelay()
-        // A new courier session displaces a dangling previous one.
-        // Open doors revert to what they were; RESERVATIONS ARE DURABLE — they
-        // belong to announced parcels, not to a session.
-        compartments.filter { it.state == CompartmentState.DOOR_OPEN }
-            .forEach { it.revertOpenDoor() }
+        // A new courier session displaces a dangling previous one — but doors
+        // are PHYSICAL: software cannot shut them. A door left open stays
+        // DOOR_OPEN until someone closes it (sim/door CLOSE); until then any
+        // door-opening action rejects with DOOR_STILL_OPEN.
         activeNr = null
         val id = UUID.randomUUID().toString()
         val s = SimSession(id, "DHL-LOCKER:$id", SimSessionState.CREATED, 0, null)
@@ -97,9 +96,8 @@ class LockerSimEngine {
 
     @Synchronized
     fun finished(req: MutationRequest): SimSessionSnapshot = mutate("session/finished", SimEvent.FINISH, req) { _ ->
-        activeCompartmentOrNull()?.let {
-            if (it.state == CompartmentState.DOOR_OPEN) it.revertOpenDoor()
-        }
+        // Finishing does NOT close a physical door: a door left open stays
+        // open (and blocks new door-opening actions) until sim/door CLOSE.
         activeNr = null
         Extras()
     }.also { session?.state = SimSessionState.FINISHED }
@@ -282,10 +280,10 @@ class LockerSimEngine {
         }
         if (comp.spec.nr != activeNr) {
             if (comp.state == CompartmentState.DOOR_OPEN) {
-                // Orphaned door from an abandoned session: shutting it frees
-                // the compartment again (the parcel left with the courier).
-                comp.state = CompartmentState.FREE
-                comp.barcode = null
+                // Orphaned door from an abandoned session: shutting it reverts
+                // the compartment — a reservation stays reserved, a hand-out
+                // parcel stays inside, an unreserved hand-in door frees up.
+                comp.revertOpenDoor()
                 log("sim/door", "orphaned compartment ${comp.spec.label} closed")
                 return snapshot(Extras(comp))
             }
