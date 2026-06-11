@@ -15,6 +15,7 @@ import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.ExceptionHandler
 import org.springframework.web.bind.annotation.RestControllerAdvice
+import org.springframework.web.bind.support.WebExchangeBindException
 
 /**
  * Error contract for the courier-facing API. Messages are deliberately
@@ -47,6 +48,10 @@ class ApiExceptionHandler {
     @ExceptionHandler(SessionForbiddenException::class)
     fun forbidden(e: SessionForbiddenException): ResponseEntity<ErrorMessage> =
         ResponseEntity.status(HttpStatus.FORBIDDEN).body(ErrorMessage("Geen toegang tot deze sessie"))
+
+    @ExceptionHandler(WebExchangeBindException::class)
+    fun invalidBody(e: WebExchangeBindException): ResponseEntity<ErrorMessage> =
+        ResponseEntity.badRequest().body(ErrorMessage("Ongeldig verzoek"))
 
     @ExceptionHandler(NoSuchElementException::class)
     fun notFound(e: NoSuchElementException): ResponseEntity<ErrorMessage> =

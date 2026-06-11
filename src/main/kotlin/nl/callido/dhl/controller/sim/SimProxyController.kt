@@ -1,5 +1,6 @@
 package nl.callido.dhl.controller.sim
 
+import jakarta.validation.Valid
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.future.await
 import kotlinx.coroutines.withContext
@@ -65,7 +66,7 @@ class SimProxyController(
      */
     @PostMapping("/parcels")
     @ResponseStatus(HttpStatus.ACCEPTED)
-    suspend fun announceParcel(@RequestBody req: ParcelAnnouncement): ParcelAnnouncement {
+    suspend fun announceParcel(@Valid @RequestBody req: ParcelAnnouncement): ParcelAnnouncement {
         val size = ParcelSize.forDimensions(req.lengthCm, req.widthCm, req.heightCm)
             ?: throw SimRejectedException("NO_FITTING_SIZE", "no compartment size fits these dimensions")
         if (withContext(Dispatchers.IO) { parcels.findByBarcode(req.barcode) } != null) {

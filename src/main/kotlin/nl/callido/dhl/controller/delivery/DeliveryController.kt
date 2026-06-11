@@ -1,5 +1,6 @@
 package nl.callido.dhl.controller.delivery
 
+import jakarta.validation.Valid
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import nl.callido.dhl.dto.delivery.RegisterDeliveryRequest
@@ -21,6 +22,6 @@ import org.springframework.web.bind.annotation.RestController
 class DeliveryController(private val deliveryService: DeliveryService) {
 
     @PostMapping("/register")
-    suspend fun register(@RequestBody req: RegisterDeliveryRequest): RegisterDeliveryResponse =
+    suspend fun register(@Valid @RequestBody req: RegisterDeliveryRequest): RegisterDeliveryResponse =
         withContext(Dispatchers.IO) { deliveryService.register(req.barcode, req.status, req.sessionId) }
 }

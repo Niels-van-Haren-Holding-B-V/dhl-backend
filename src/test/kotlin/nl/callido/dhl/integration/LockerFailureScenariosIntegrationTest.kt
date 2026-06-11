@@ -426,6 +426,25 @@ class LockerFailureScenariosIntegrationTest {
         // session-scoped dedupe stays covered by the hand-in happy-path IT
     }
 
+    @Test
+    fun `announcing a parcel with impossible dimensions is a 400 and reserves nothing`() {
+        val response = post(
+            "/api/sim/parcels",
+            mapOf("barcode" to "DHL-IN-999", "lengthCm" to -1, "widthCm" to 10, "heightCm" to 10, "weightG" to 500),
+            Map::class.java,
+        )
+        assertEquals(400, response.statusCode.value())
+        assertEquals("Ongeldig verzoek", response.body!!["message"])
+
+        // rejected at the front door: no reservation, no parcel row
+        val machine = get("/api/sim/state", SimStateSnapshot::class.java)
+        assertEquals(0, machine.compartments.count { it.state.name == "RESERVED" })
+        assertEquals(
+            0,
+            jdbc.queryForObject("select count(*) from parcel where barcode = ?", Int::class.java, "DHL-IN-999"),
+        )
+    }
+
     private fun countOutbox(barcode: String): Int = jdbc.queryForObject(
         "select count(*) from outbox where aggregate_id = ?",
         Int::class.java,
