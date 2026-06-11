@@ -64,7 +64,7 @@ class SessionReaper(
         runCatching {
             val version = client.status(session.externalSessionId).version
             client.finished(MutationRequest(session.externalSessionId, version))
-        }.onFailure { log.warn("could not finish session {} at locker, expiring locally", id) }
+        }.onFailure { e -> log.warn("could not finish session {} at locker, expiring locally", id, e) }
         io {
             parcels.findByStopId(session.stopId)
                 .filter { it.status == ParcelStatus.EXPECTED }

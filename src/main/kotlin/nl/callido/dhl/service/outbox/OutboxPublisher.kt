@@ -27,7 +27,7 @@ class OutboxPublisher(private val outbox: OutboxRepository, private val kafka: K
             try {
                 kafka.send(TOPIC, event.aggregateId, event.payload).await()
             } catch (e: Exception) {
-                log.warn("outbox publish failed for event {} ({}), retrying next tick", event.id, event.eventType)
+                log.warn("outbox publish failed for event {} ({}), retrying next tick", event.id, event.eventType, e)
                 break
             }
             event.publishedAt = Instant.now()

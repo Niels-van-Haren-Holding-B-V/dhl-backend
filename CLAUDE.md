@@ -144,6 +144,9 @@ Cross-cutting rules in the proxy layer:
    + register NOT_DELIVERED.
 5. resilience4j circuit breaker around all locker-sim calls; open circuit →
    503 {"message": "Pakketautomaat tijdelijk niet bereikbaar"}.
+6. Language: server logs and the sim event log are English; user-facing
+   response messages are Dutch and CONSTANT strings — exception messages
+   (ids, states) belong in the log, never in a response body.
 
 ## Outbox → Kafka
 

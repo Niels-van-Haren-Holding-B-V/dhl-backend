@@ -427,12 +427,12 @@ class LockerSimEngine {
         }
         val comp = selectCompartment(barcode, size, honourFailure = false)
         if (comp == null) {
-            log("sim/reserve", "GEEN capaciteit voor $barcode ($size) — pakket wordt elders gerouteerd")
+            log("sim/reserve", "NO capacity for $barcode ($size) — parcel routes elsewhere")
             throw SimEngineRejectedException("NO_CAPACITY", "no free compartment for size $size")
         }
         comp.state = CompartmentState.RESERVED
         comp.barcode = barcode
-        log("sim/reserve", "vak ${comp.spec.label} gereserveerd voor $barcode")
+        log("sim/reserve", "compartment ${comp.spec.label} reserved for $barcode")
         return comp.toDto()
     }
 
