@@ -173,6 +173,43 @@ class LockerSimEngineTest {
     }
 
     @Test
+    fun `reservation flow - announce, reserve, attempt opens the reserved door, walkaway keeps it`() {
+        // pre-announcement reserves the smallest fitting free door, idempotently
+        val reserved = engine.reserve("DHL-IN-NEW", ParcelSize.S)
+        assertEquals(CompartmentState.RESERVED, engine.fullState().compartments.single { it.nr == reserved.nr }.state)
+        assertEquals(reserved.nr, engine.reserve("DHL-IN-NEW", ParcelSize.S).nr, "reserve must be idempotent per barcode")
+
+        // the courier's attempt opens exactly the reserved door
+        val init = engine.init()
+        engine.bind(init.qrCode)
+        val attempt = engine.handInAttempt(MutationRequest(init.sessionId, 1, "DHL-IN-NEW", ParcelSize.S))
+        assertEquals(reserved.nr, attempt.compartment!!.nr, "attempt must open the reserved door")
+
+        // courier walks away; a NEW session displaces the open door — but the
+        // reservation survives (it belongs to the parcel, not the session)
+        val init2 = engine.init()
+        val comp = engine.fullState().compartments.single { it.nr == reserved.nr }
+        assertEquals(CompartmentState.RESERVED, comp.state, "walkaway must revert the door to RESERVED")
+        assertEquals("DHL-IN-NEW", comp.barcode)
+
+        // and the next session still lands in the same door
+        engine.bind(init2.qrCode)
+        val retry = engine.handInAttempt(MutationRequest(init2.sessionId, 1, "DHL-IN-NEW", ParcelSize.S))
+        assertEquals(reserved.nr, retry.compartment!!.nr)
+    }
+
+    @Test
+    fun `reserve rejects when no fitting door is free`() {
+        // exhaust every door that could fit an XL parcel
+        val state = engine.fullState()
+        state.compartments
+            .filter { it.enabled && it.size >= ParcelSize.XL }
+            .forEachIndexed { i, c -> engine.reserve("DHL-FILL-$i", c.size) }
+        val e = assertThrows<SimEngineRejectedException> { engine.reserve("DHL-TOO-LATE", ParcelSize.XL) }
+        assertEquals("NO_CAPACITY", e.code)
+    }
+
+    @Test
     fun `attempt picks the smallest free compartment that fits`() {
         val init = engine.init()
         engine.bind(init.qrCode)

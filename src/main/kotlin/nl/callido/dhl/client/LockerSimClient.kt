@@ -5,12 +5,14 @@ import io.github.resilience4j.circuitbreaker.CircuitBreaker
 import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig
 import io.github.resilience4j.kotlin.circuitbreaker.executeSuspendFunction
 import nl.callido.dhl.dto.sim.BindRequest
+import nl.callido.dhl.dto.sim.CompartmentDto
 import nl.callido.dhl.dto.sim.ConflictResponse
 import nl.callido.dhl.dto.sim.DoorRequest
 import nl.callido.dhl.dto.sim.FailureRequest
 import nl.callido.dhl.dto.sim.InitResponse
 import nl.callido.dhl.dto.sim.MutationRequest
 import nl.callido.dhl.dto.sim.RejectionResponse
+import nl.callido.dhl.dto.sim.ReserveRequest
 import nl.callido.dhl.dto.sim.ResetRequest
 import nl.callido.dhl.dto.sim.SimSessionSnapshot
 import nl.callido.dhl.dto.sim.SimStateSnapshot
@@ -96,6 +98,8 @@ class LockerSimClient(
     suspend fun simDoor(req: DoorRequest): SimSessionSnapshot = post("/locker-api/sim/door", req)
 
     suspend fun simFailures(req: FailureRequest): SimStateSnapshot = post("/locker-api/sim/failures", req)
+
+    suspend fun simReserve(req: ReserveRequest): CompartmentDto = post("/locker-api/sim/reserve", req)
 
     suspend fun simReset(req: ResetRequest): SimStateSnapshot = post("/locker-api/sim/reset", req)
 

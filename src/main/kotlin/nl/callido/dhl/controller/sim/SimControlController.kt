@@ -3,8 +3,10 @@ package nl.callido.dhl.controller.sim
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import nl.callido.dhl.dto.sim.BindRequest
+import nl.callido.dhl.dto.sim.CompartmentDto
 import nl.callido.dhl.dto.sim.DoorRequest
 import nl.callido.dhl.dto.sim.FailureRequest
+import nl.callido.dhl.dto.sim.ReserveRequest
 import nl.callido.dhl.dto.sim.ResetRequest
 import nl.callido.dhl.dto.sim.SimSessionSnapshot
 import nl.callido.dhl.dto.sim.SimStateSnapshot
@@ -17,8 +19,8 @@ import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RestController
 
 /**
- * Demo-only control surface: the "physical world" of the machine — scanning
- * the QR, doors closing, hardware failing. Drives the parcel-machine page.
+ * Control surface for the "physical world" of the machine — scanning the
+ * QR, doors closing, hardware failing. Drives the parcel-machine page.
  */
 @RestController
 @RequestMapping("/locker-api/sim")
@@ -36,6 +38,10 @@ class SimControlController(private val engine: LockerSimEngine) {
 
     @PostMapping("/failures")
     suspend fun failures(@RequestBody req: FailureRequest): SimStateSnapshot = sim { engine.setFailure(req.mode, req.enabled) }
+
+    /** Pre-announcement from the platform: reserve a fitting door for a parcel. */
+    @PostMapping("/reserve")
+    suspend fun reserve(@RequestBody req: ReserveRequest): CompartmentDto = sim { engine.reserve(req.barcode, req.size) }
 
     @PostMapping("/reset")
     suspend fun reset(@RequestBody(required = false) req: ResetRequest?): SimStateSnapshot = sim { engine.reset(req?.config) }

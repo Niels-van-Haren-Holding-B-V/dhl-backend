@@ -27,6 +27,7 @@ class DemoResetService(
         registrations.deleteAllInBatch()
         outbox.deleteAllInBatch()
         sessions.deleteAllInBatch()
+        parcels.deleteAnnounced()
         parcels.resetAllToExpected()
     }
 }

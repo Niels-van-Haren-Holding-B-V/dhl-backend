@@ -27,7 +27,7 @@ import tools.jackson.databind.ObjectMapper
 /**
  * Thin authenticated passthrough so the parcel-machine page works with a
  * courier-realm token only — the locker realm never reaches the browser.
- * Demo-only surface, disabled in production-like setups via SIM_ENABLED.
+ * Disabled in production-like setups via SIM_ENABLED.
  */
 @RestController
 @RequestMapping("/api/sim")
@@ -52,10 +52,9 @@ class SimProxyController(
     suspend fun failures(@RequestBody req: FailureRequest): SimStateSnapshot = client.simFailures(req)
 
     /**
-     * Demo stand-in for the upstream planning system: publishes the
-     * announcement to the `parcel-intake` topic, where the regular Kafka
-     * ingestion picks it up. Deliberately 202: the parcel appears in the
-     * trips a moment later — eventual consistency, like the real thing.
+     * Stand-in for the upstream planning system: publishes the announcement
+     * to the `parcel-intake` topic, where the regular Kafka ingestion picks
+     * it up. Deliberately 202: ingestion is asynchronous.
      */
     @PostMapping("/parcels")
     @ResponseStatus(HttpStatus.ACCEPTED)
@@ -66,7 +65,7 @@ class SimProxyController(
         return req
     }
 
-    /** Full demo reset: the sim AND the seeded data (parcels, sessions, registrations). */
+    /** Full reset: the sim AND the seeded data (parcels, sessions, registrations). */
     @PostMapping("/reset")
     suspend fun reset(@RequestBody(required = false) req: ResetRequest?): SimStateSnapshot {
         withContext(Dispatchers.IO) { demoReset.resetDemoData() }

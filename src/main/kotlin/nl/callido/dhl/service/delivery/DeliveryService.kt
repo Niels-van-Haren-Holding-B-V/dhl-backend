@@ -13,9 +13,8 @@ import java.time.Instant
 import java.util.UUID
 
 /**
- * The "existing" registerDelivery path — the locker flow funnels into the
- * same logic that doorstep deliveries would use (the path-reuse the case
- * asks to demonstrate).
+ * The registerDelivery path — the locker flow funnels into the same logic
+ * that doorstep deliveries use.
  */
 @Service
 class DeliveryService(

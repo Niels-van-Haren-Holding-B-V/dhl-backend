@@ -1,9 +1,14 @@
 package nl.callido.dhl.service.trips
 
+import kotlinx.coroutines.runBlocking
+import nl.callido.dhl.client.LockerSimClient
+import nl.callido.dhl.client.SimRejectedException
+import nl.callido.dhl.common.ParcelSize
 import nl.callido.dhl.domain.DeliveryLocationType
 import nl.callido.dhl.domain.Parcel
 import nl.callido.dhl.domain.ParcelDirection
 import nl.callido.dhl.domain.ParcelStatus
+import nl.callido.dhl.dto.sim.ReserveRequest
 import nl.callido.dhl.dto.trips.ParcelAnnouncement
 import nl.callido.dhl.repository.ParcelRepository
 import nl.callido.dhl.repository.StopRepository
@@ -16,15 +21,19 @@ import java.util.UUID
 
 /**
  * Kafka ingestion from upstream planning systems: announcements on
- * `parcel-intake` become EXPECTED hand-in parcels on a stop. Idempotent by
- * barcode (replays and duplicate announcements are no-ops); a malformed
- * message is logged and skipped, never blocks the partition.
+ * `parcel-intake` become EXPECTED hand-in parcels on a stop — but only after
+ * the machine RESERVES a fitting compartment (pre-announcement). The t-shirt
+ * size is derived from the announced dimensions; no fitting free door means
+ * the parcel is not planned onto this machine (it would route elsewhere).
+ * Idempotent by barcode; malformed messages are logged and skipped, never
+ * blocking the partition.
  */
 @Component
 @ConditionalOnBooleanProperty("dhl.backend.enabled")
 class ParcelIntakeConsumer(
     private val parcels: ParcelRepository,
     private val stops: StopRepository,
+    private val client: LockerSimClient,
     private val objectMapper: ObjectMapper,
 ) {
 
@@ -42,10 +51,27 @@ class ParcelIntakeConsumer(
             log.info("parcel-intake: {} already known, skipping", announcement.barcode)
             return
         }
+        val size = ParcelSize.forDimensions(announcement.lengthCm, announcement.widthCm, announcement.heightCm)
+        if (size == null) {
+            log.warn("parcel-intake: {} does not fit ANY compartment size, rejecting", announcement.barcode)
+            return
+        }
         val stopId = announcement.stopId
             ?: stops.findAll().firstOrNull { it.deliveryLocationType == DeliveryLocationType.LOCKER }?.id
         if (stopId == null) {
             log.warn("parcel-intake: no LOCKER stop to attach {} to, skipping", announcement.barcode)
+            return
+        }
+        // Pre-announcement: the machine must reserve capacity FIRST. No
+        // reservation, no planning — the parcel would be routed to another
+        // machine. (Kafka listener thread, blocking bridge is fine here.)
+        val reserved = try {
+            runBlocking { client.simReserve(ReserveRequest(announcement.barcode, size)) }
+        } catch (e: SimRejectedException) {
+            log.warn("parcel-intake: machine rejected reservation for {} ({}): {}", announcement.barcode, size, e.code)
+            return
+        } catch (e: Exception) {
+            log.warn("parcel-intake: machine unreachable, {} not planned: {}", announcement.barcode, e.message)
             return
         }
         parcels.save(
@@ -61,7 +87,13 @@ class ParcelIntakeConsumer(
                 weightG = announcement.weightG,
             ),
         )
-        log.info("parcel-intake: {} ingested onto stop {}", announcement.barcode, stopId)
+        log.info(
+            "parcel-intake: {} ({}) ingested onto stop {}, compartment {} reserved",
+            announcement.barcode,
+            size,
+            stopId,
+            reserved.label,
+        )
     }
 
     companion object {

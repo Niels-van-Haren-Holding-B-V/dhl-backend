@@ -13,8 +13,7 @@ import java.util.concurrent.ConcurrentHashMap
  *
  * In-memory ON PURPOSE: this only works single-replica. With more than one
  * backend pod this must become a Postgres advisory lock
- * (pg_advisory_xact_lock) or a Redis lock — deliberate demo simplification
- * and a talking point.
+ * (pg_advisory_xact_lock) or a Redis lock.
  */
 @Component
 class SessionLocks {

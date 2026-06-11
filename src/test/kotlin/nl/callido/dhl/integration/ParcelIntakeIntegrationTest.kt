@@ -2,6 +2,7 @@ package nl.callido.dhl.integration
 
 import nl.callido.dhl.client.LockerSimBaseUrl
 import nl.callido.dhl.client.LockerTokenProvider
+import nl.callido.dhl.dto.sim.SimStateSnapshot
 import nl.callido.dhl.dto.trips.ParcelAnnouncement
 import nl.callido.dhl.dto.trips.TripDto
 import nl.callido.dhl.service.trips.ParcelIntakeConsumer
@@ -31,6 +32,7 @@ import org.testcontainers.redpanda.RedpandaContainer
 import java.time.Duration
 import java.time.Instant
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 /**
  * Kafka ingestion from "upstream planning": parcels announced on the
@@ -152,6 +154,14 @@ class ParcelIntakeIntegrationTest {
         assertEquals("HAND_IN", row["direction"])
         assertEquals(30, row["length_cm"])
 
+        // pre-announcement: the machine reserved a fitting door, visible on the machine page
+        val machine = http.get().uri("/api/sim/state")
+            .headers { it.setBearerAuth("test-token") }
+            .retrieve().toEntity(SimStateSnapshot::class.java).body!!
+        val reserved = machine.compartments.single { it.barcode == "DHL-IN-KAFKA-1" }
+        assertEquals("RESERVED", reserved.state.name)
+        assertTrue(reserved.size.name in listOf("S", "M"), "a 30x20x10 parcel reserves the smallest fitting door")
+
         // it is attached to the seeded LOCKER stop and visible through /api/trips
         val trips = http.get().uri("/api/trips")
             .headers { it.setBearerAuth("test-token") }
@@ -185,6 +195,19 @@ class ParcelIntakeIntegrationTest {
             jdbc.queryForObject("select count(*) from parcel where barcode = ?", Int::class.java, "DHL-IN-KAFKA-1"),
             "duplicate announcement must not create a second parcel",
         )
+
+        // 5) reset removes announced parcels again; seeded parcels survive
+        http.post().uri("/api/sim/reset")
+            .headers { it.setBearerAuth("test-token") }
+            .contentType(MediaType.APPLICATION_JSON)
+            .body("{}")
+            .retrieve().toBodilessEntity()
+        assertEquals(
+            0,
+            jdbc.queryForObject("select count(*) from parcel where barcode like 'DHL-IN-KAFKA-%'", Int::class.java),
+            "reset must remove parcels announced via Kafka intake",
+        )
+        assertEquals(3, jdbc.queryForObject("select count(*) from parcel", Int::class.java), "seed stays intact")
     }
 
     private fun rawProducer(): KafkaProducer<String, String> = KafkaProducer(

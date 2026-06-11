@@ -31,6 +31,21 @@ class LockerSimEngine {
     private class SimSession(val id: String, val qrCode: String, var state: SimSessionState, var version: Int, var boundAt: Instant?)
 
     private class Compartment(val spec: CompartmentSpec, var state: CompartmentState, var barcode: String?) {
+        /** What the door was before it opened — a walkaway reverts to this. */
+        var openedFrom: CompartmentState = CompartmentState.FREE
+
+        fun open(barcode: String?) {
+            openedFrom = state
+            state = CompartmentState.DOOR_OPEN
+            if (barcode != null) this.barcode = barcode
+        }
+
+        /** Door never closed properly: revert. A reservation survives, a hand-out parcel stays inside. */
+        fun revertOpenDoor() {
+            state = openedFrom
+            if (openedFrom == CompartmentState.FREE) barcode = null
+        }
+
         fun toDto() = CompartmentDto(
             nr = spec.nr, label = spec.label, column = spec.column, address = spec.address,
             backAddress = spec.backAddress, size = spec.size, enabled = spec.enabled,
@@ -59,12 +74,11 @@ class LockerSimEngine {
     @Synchronized
     fun init(): InitResponse {
         maybeDelay()
-        // A new courier session displaces a dangling previous one (demo-friendly).
-        compartments.filter { it.state == CompartmentState.RESERVED || it.state == CompartmentState.DOOR_OPEN }
-            .forEach {
-                it.state = CompartmentState.FREE
-                it.barcode = null
-            }
+        // A new courier session displaces a dangling previous one.
+        // Open doors revert to what they were; RESERVATIONS ARE DURABLE — they
+        // belong to announced parcels, not to a session.
+        compartments.filter { it.state == CompartmentState.DOOR_OPEN }
+            .forEach { it.revertOpenDoor() }
         activeNr = null
         val id = UUID.randomUUID().toString()
         val s = SimSession(id, "DHL-LOCKER:$id", SimSessionState.CREATED, 0, null)
@@ -84,10 +98,7 @@ class LockerSimEngine {
     @Synchronized
     fun finished(req: MutationRequest): SimSessionSnapshot = mutate("session/finished", SimEvent.FINISH, req) { _ ->
         activeCompartmentOrNull()?.let {
-            if (it.state == CompartmentState.DOOR_OPEN || it.state == CompartmentState.RESERVED) {
-                it.state = CompartmentState.FREE
-                it.barcode = null
-            }
+            if (it.state == CompartmentState.DOOR_OPEN) it.revertOpenDoor()
         }
         activeNr = null
         Extras()
@@ -104,7 +115,8 @@ class LockerSimEngine {
             !req.barcode.startsWith("DHL-") -> ValidateResponse(false, "UNKNOWN_BARCODE")
             req.size == null -> ValidateResponse(false, "NO_FITTING_SIZE")
             else -> {
-                val candidate = selectCompartment(req.barcode, req.size, honourFailure = false)
+                val candidate = reservationFor(req.barcode)
+                    ?: selectCompartment(req.barcode, req.size, honourFailure = false)
                 if (candidate == null) {
                     ValidateResponse(false, "NO_CAPACITY")
                 } else {
@@ -121,10 +133,11 @@ class LockerSimEngine {
         val barcode = req.barcode ?: throw SimEngineRejectedException("MISSING_BARCODE", "barcode is required")
         val size = req.size ?: throw SimEngineRejectedException("MISSING_SIZE", "size is required")
         requireAllDoorsClosed()
-        val comp = selectCompartment(barcode, size, honourFailure = true)
+        val sabotage = FailureMode.SIZE_TOO_SMALL in failures
+        val comp = (if (sabotage) null else reservationFor(barcode))
+            ?: selectCompartment(barcode, size, honourFailure = true)
             ?: throw SimEngineRejectedException("NO_COMPARTMENT_AVAILABLE", "no free compartment for size $size")
-        comp.state = CompartmentState.DOOR_OPEN
-        comp.barcode = barcode
+        comp.open(barcode)
         activeNr = comp.spec.nr
         s.state = SimSessionState.HAND_IN_DOOR_OPEN
         Extras(comp)
@@ -185,7 +198,7 @@ class LockerSimEngine {
         requireAllDoorsClosed()
         val comp = compartments.find { it.state == CompartmentState.OCCUPIED && it.barcode == barcode }
             ?: throw SimEngineRejectedException("UNKNOWN_PARCEL", "no occupied compartment holds $barcode")
-        comp.state = CompartmentState.DOOR_OPEN
+        comp.open(null)
         activeNr = comp.spec.nr
         s.state = SimSessionState.HAND_OUT_DOOR_OPEN
         val present = FailureMode.PARCEL_MISSING !in failures
@@ -392,6 +405,46 @@ class LockerSimEngine {
      * open compartments is a recipe for parcels in the wrong vak. Any
      * door-opening action is rejected until every door is shut.
      */
+    /**
+     * Pre-announcement: an upstream-announced parcel reserves the smallest
+     * fitting free door AHEAD of the courier's visit, so capacity is
+     * guaranteed and visible on the machine. Idempotent per barcode; no
+     * fitting free door -> NO_CAPACITY (the parcel routes elsewhere).
+     */
+    @Synchronized
+    fun reserve(barcode: String, size: ParcelSize): CompartmentDto {
+        maybeDelay()
+        compartments.find { it.state == CompartmentState.RESERVED && it.barcode == barcode }?.let {
+            return it.toDto()
+        }
+        val comp = selectCompartment(barcode, size, honourFailure = false)
+        if (comp == null) {
+            log("sim/reserve", "GEEN capaciteit voor $barcode ($size) — pakket wordt elders gerouteerd")
+            throw SimEngineRejectedException("NO_CAPACITY", "no free compartment for size $size")
+        }
+        comp.state = CompartmentState.RESERVED
+        comp.barcode = barcode
+        log("sim/reserve", "vak ${comp.spec.label} gereserveerd voor $barcode")
+        return comp.toDto()
+    }
+
+    /**
+     * The reservation for a barcode, unless a size hint (vak te klein!)
+     * outgrew it — then the reservation is released and selection falls
+     * through to a bigger free door.
+     */
+    private fun reservationFor(barcode: String): Compartment? {
+        val reserved = compartments.find { it.state == CompartmentState.RESERVED && it.barcode == barcode }
+            ?: return null
+        val hint = sizeHints[barcode]
+        if (hint != null && reserved.spec.size <= hint) {
+            reserved.state = CompartmentState.FREE
+            reserved.barcode = null
+            return null
+        }
+        return reserved
+    }
+
     private fun requireAllDoorsClosed() {
         compartments.find { it.state == CompartmentState.DOOR_OPEN }?.let {
             throw SimEngineRejectedException("DOOR_STILL_OPEN", "close compartment ${it.spec.label} first")

@@ -19,7 +19,7 @@ import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 
 /**
- * The case's Locker API, as the "other team" would serve it.
+ * The Locker API, as served by the locker platform.
  * Lives under the `locker` realm — only the BFF's client-credentials identity calls it.
  *
  * Handlers hop to Dispatchers.IO: the engine is synchronized and the

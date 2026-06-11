@@ -12,9 +12,8 @@ import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RestController
 
 /**
- * The pre-existing registration endpoint. The locker flow calls the same
- * service internally on confirm — kept as a real endpoint to demonstrate
- * path reuse.
+ * The pre-existing registration endpoint; the locker flow calls the same
+ * service internally on confirm.
  */
 @RestController
 @RequestMapping("/api/deliveries")
