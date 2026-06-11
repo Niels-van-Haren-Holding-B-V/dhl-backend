@@ -347,6 +347,30 @@ class LockerFailureScenariosIntegrationTest {
         )
     }
 
+    @Test
+    fun `sessionless register is idempotent - the test that would have caught the NULL hole`() {
+        // a doorstep registration carries no sessionId; calling it twice must
+        // still produce exactly one registration row and one outbox row
+        repeat(2) {
+            val response = post(
+                "/api/deliveries/register",
+                mapOf("barcode" to "DHL-IN-001", "status" to "HANDED_IN"),
+                Map::class.java,
+            )
+            assertEquals(200, response.statusCode.value())
+        }
+        assertEquals(
+            1,
+            jdbc.queryForObject(
+                "select count(*) from delivery_registration where barcode = ? and session_id is null",
+                Int::class.java,
+                "DHL-IN-001",
+            ),
+        )
+        assertEquals(1, countOutbox("DHL-IN-001"))
+        // session-scoped dedupe stays covered by the hand-in happy-path IT
+    }
+
     private fun countOutbox(barcode: String): Int = jdbc.queryForObject(
         "select count(*) from outbox where aggregate_id = ?",
         Int::class.java,

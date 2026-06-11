@@ -24,8 +24,11 @@ class DeliveryService(
 ) {
 
     /**
-     * Idempotent on (sessionId, barcode): a duplicate confirm — double tap,
-     * reconciled retry, replayed request — must not produce a second outbox
+     * Idempotent on (sessionId, barcode) — INCLUDING the sessionless path
+     * (sessionId = null): the lookup is NULL-safe (`is not distinct from`)
+     * and the schema backstops it with UNIQUE NULLS NOT DISTINCT. A
+     * duplicate registration — double tap, reconciled retry, replayed
+     * request, repeated doorstep call — must not produce a second outbox
      * row. Registration and outbox row commit in the SAME transaction.
      */
     @Transactional
