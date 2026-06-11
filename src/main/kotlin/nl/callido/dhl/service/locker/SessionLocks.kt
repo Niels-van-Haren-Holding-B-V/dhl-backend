@@ -14,6 +14,11 @@ import java.util.concurrent.ConcurrentHashMap
  * In-memory ON PURPOSE: this only works single-replica. With more than one
  * backend pod this must become a Postgres advisory lock
  * (pg_advisory_xact_lock) or a Redis lock.
+ *
+ * Entries are never evicted: one Mutex per session id, a few dozen bytes
+ * each, bounded by the demo's session count. A production version would
+ * evict on session finish/expiry (or use the advisory lock above and have
+ * no map at all).
  */
 @Component
 class SessionLocks {

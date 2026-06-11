@@ -409,11 +409,6 @@ class LockerSimEngine {
     }
 
     /**
-     * A real machine never opens a second door: a courier in front of two
-     * open compartments is a recipe for parcels in the wrong vak. Any
-     * door-opening action is rejected until every door is shut.
-     */
-    /**
      * Pre-announcement: an upstream-announced parcel reserves the smallest
      * fitting free door AHEAD of the courier's visit, so capacity is
      * guaranteed and visible on the machine. Idempotent per barcode; no

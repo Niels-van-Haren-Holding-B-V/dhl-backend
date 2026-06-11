@@ -119,7 +119,8 @@ hand-out parcel DHL-OUT-001 is pre-loaded in the first M compartment.
   created_at, published_at)
 - Seed (Flyway V2, deterministic UUIDs): 1 trip, 3 stops; the LOCKER stop has
   2 hand-in parcels (DHL-IN-001, DHL-IN-002) + 1 hand-out parcel (DHL-OUT-001).
-  The sim pre-loads DHL-OUT-001 in compartment 7 — keep these in sync.
+  The sim pre-loads DHL-OUT-001 in its first enabled M compartment — keep
+  these barcodes in sync.
 
 ## Courier API (`/api`, courier realm)
 
@@ -154,6 +155,10 @@ Cross-cutting rules in the proxy layer:
 - @Scheduled publisher polls unpublished rows → Redpanda topic `delivery-events`
   (JSON), marks published_at.
 - Demo consumer: `rpk topic consume delivery-events` (documented in /infra/README).
+- Intake: topic `parcel-intake` (@KafkaListener, groupId dhl-backend) — upstream
+  announcements become EXPECTED parcels after the machine reserves a fitting
+  door; POST /api/sim/parcels (ParcelAnnouncementService) validates + reserves
+  synchronously, then publishes to the same topic.
 
 ## locker-sim (`/locker-api`, locker realm) — the simulated parcel machine
 
@@ -167,8 +172,12 @@ Mirrors the case's Locker API exactly:
 
 State machine: explicit enum + allowed-transitions table (Map<State, Set<Event>>),
 table-driven unit tests. Optimistic locking: integer version per session; stale
-version → 409. Compartments: fixed grid of 12 (S/M/L), states
-FREE | RESERVED | OCCUPIED | DOOR_OPEN | DEFECT.
+version → 409. Compartments: parsed from real machine layout templates
+(LockerConfigurations: courier doors XS–XXL plus disabled TC/FC/BUS modules,
+columns padded to equal pitch so the face is always full), states
+FREE | RESERVED | OCCUPIED | DOOR_OPEN | DEFECT. Doors are physical: software
+never closes one, any DOOR_OPEN blocks door-opening actions (DEFECT excepted
+— one broken compartment must not brick the machine).
 
 ### Simulator control API (`/locker-api/sim`, locker realm — demo only)
 
@@ -181,6 +190,8 @@ Powers the parcel-machine page in dhl-frontend:
 - POST /locker-api/sim/failures {mode, enabled} — modes:
   SIZE_TOO_SMALL, DOOR_STUCK, COMPARTMENT_DEFECT, PARCEL_MISSING (hand-out),
   SLOW_NETWORK (3s delay on all sim responses), FORCE_409 (next mutation → 409)
+- POST /locker-api/sim/reserve {barcode, size} — pre-announcement: reserve a
+  fitting door ahead of the courier's visit (used by the parcel-intake flow)
 - POST /locker-api/sim/reset — clean state between demo runs
 
 Event log: every received API call → {ts, endpoint, payload-summary,
