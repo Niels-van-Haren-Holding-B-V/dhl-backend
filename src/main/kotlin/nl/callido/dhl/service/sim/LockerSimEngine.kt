@@ -187,7 +187,10 @@ class LockerSimEngine {
     @Synchronized
     fun handInReopen(req: MutationRequest): SimSessionSnapshot = mutate("hand-in/reopen-compartment", SimEvent.HAND_IN_REOPEN, req) { s ->
         val comp = activeCompartment()
-        comp.state = CompartmentState.DOOR_OPEN
+        // go through open() so openedFrom records OCCUPIED: a walkaway after
+        // a reopen must revert to an occupied compartment, not erase the
+        // parcel that is physically inside
+        comp.open(comp.barcode)
         s.state = SimSessionState.HAND_IN_DOOR_OPEN
         Extras(comp)
     }

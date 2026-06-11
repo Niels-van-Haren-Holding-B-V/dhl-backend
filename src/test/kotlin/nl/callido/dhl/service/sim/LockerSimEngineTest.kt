@@ -231,6 +231,28 @@ class LockerSimEngineTest {
     }
 
     @Test
+    fun `walkaway after a reopen keeps the compartment occupied with its parcel`() {
+        val init = engine.init()
+        engine.bind(init.qrCode)
+        val attempt = engine.handInAttempt(MutationRequest(init.sessionId, 1, "DHL-IN-001", ParcelSize.S))
+        val nr = assertNotNull(attempt.compartment).nr
+        engine.door(nr, DoorAction.CLOSE)
+
+        // the courier re-checks the parcel, then walks away with the door open
+        val reopened = engine.handInReopen(MutationRequest(init.sessionId, 3))
+        assertEquals(SimSessionState.HAND_IN_DOOR_OPEN, reopened.state)
+
+        // a new session starts; someone shuts the abandoned door — the parcel
+        // is physically inside, so the compartment must revert to OCCUPIED,
+        // not silently free up and lose the barcode
+        engine.init()
+        engine.door(nr, DoorAction.CLOSE)
+        val comp = engine.fullState().compartments.single { it.nr == nr }
+        assertEquals(CompartmentState.OCCUPIED, comp.state)
+        assertEquals("DHL-IN-001", comp.barcode)
+    }
+
+    @Test
     fun `attempt picks the smallest free compartment that fits`() {
         val init = engine.init()
         engine.bind(init.qrCode)
