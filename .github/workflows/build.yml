@@ -71,6 +71,7 @@ jobs:
           kubectl -n dhl-demo rollout status deploy/locker-sim --timeout=240s
 
       - name: Smoke check
+        # retries bridge the endpoint-propagation window right after a rollout
         run: |
-          curl -sf https://dhl-api.vanharen-it.nl/actuator/health
-          curl -sf https://dhl-auth.vanharen-it.nl/realms/courier/.well-known/openid-configuration >/dev/null
+          curl -sf --retry 6 --retry-delay 5 --retry-all-errors https://dhl-api.vanharen-it.nl/actuator/health
+          curl -sf --retry 6 --retry-delay 5 --retry-all-errors https://dhl-auth.vanharen-it.nl/realms/courier/.well-known/openid-configuration >/dev/null
