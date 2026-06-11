@@ -4,13 +4,17 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.future.await
 import kotlinx.coroutines.withContext
 import nl.callido.dhl.client.LockerSimClient
+import nl.callido.dhl.client.SimRejectedException
+import nl.callido.dhl.common.ParcelSize
 import nl.callido.dhl.dto.sim.BindRequest
 import nl.callido.dhl.dto.sim.DoorRequest
 import nl.callido.dhl.dto.sim.FailureRequest
+import nl.callido.dhl.dto.sim.ReserveRequest
 import nl.callido.dhl.dto.sim.ResetRequest
 import nl.callido.dhl.dto.sim.SimSessionSnapshot
 import nl.callido.dhl.dto.sim.SimStateSnapshot
 import nl.callido.dhl.dto.trips.ParcelAnnouncement
+import nl.callido.dhl.repository.ParcelRepository
 import nl.callido.dhl.service.sim.DemoResetService
 import nl.callido.dhl.service.trips.ParcelIntakeConsumer
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBooleanProperty
@@ -37,6 +41,7 @@ class SimProxyController(
     private val demoReset: DemoResetService,
     private val kafka: KafkaTemplate<String, String>,
     private val objectMapper: ObjectMapper,
+    private val parcels: ParcelRepository,
 ) {
 
     @PostMapping("/bind")
@@ -52,13 +57,21 @@ class SimProxyController(
     suspend fun failures(@RequestBody req: FailureRequest): SimStateSnapshot = client.simFailures(req)
 
     /**
-     * Stand-in for the upstream planning system: publishes the announcement
-     * to the `parcel-intake` topic, where the regular Kafka ingestion picks
-     * it up. Deliberately 202: ingestion is asynchronous.
+     * Stand-in for the upstream planning system. Validation and the capacity
+     * reservation happen SYNCHRONOUSLY, so a duplicate barcode, impossible
+     * dimensions or a full machine reject right here — a 202 means the
+     * parcel is truly planned. The announcement still travels over the
+     * parcel-intake topic; the consumer's reserve is idempotent.
      */
     @PostMapping("/parcels")
     @ResponseStatus(HttpStatus.ACCEPTED)
     suspend fun announceParcel(@RequestBody req: ParcelAnnouncement): ParcelAnnouncement {
+        val size = ParcelSize.forDimensions(req.lengthCm, req.widthCm, req.heightCm)
+            ?: throw SimRejectedException("NO_FITTING_SIZE", "no compartment size fits these dimensions")
+        if (withContext(Dispatchers.IO) { parcels.findByBarcode(req.barcode) } != null) {
+            throw SimRejectedException("DUPLICATE_BARCODE", "parcel ${req.barcode} already exists")
+        }
+        client.simReserve(ReserveRequest(req.barcode, size))
         withContext(Dispatchers.IO) {
             kafka.send(ParcelIntakeConsumer.TOPIC, req.barcode, objectMapper.writeValueAsString(req)).await()
         }
