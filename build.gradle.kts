@@ -72,3 +72,19 @@ allOpen {
 tasks.withType<Test> {
     useJUnitPlatform()
 }
+
+// Local dev: bootRun loads the secrets from infra/.env itself (gitignored),
+// so `./gradlew bootRun` and IDE gradle runs just work. Real env vars win.
+tasks.named<org.springframework.boot.gradle.tasks.run.BootRun>("bootRun") {
+    val envFile = file("infra/.env")
+    if (envFile.exists()) {
+        envFile.readLines()
+            .map { it.trim() }
+            .filter { it.isNotEmpty() && !it.startsWith("#") && it.contains("=") }
+            .forEach { line ->
+                val key = line.substringBefore("=")
+                val value = line.substringAfter("=")
+                if (System.getenv(key) == null) environment(key, value)
+            }
+    }
+}

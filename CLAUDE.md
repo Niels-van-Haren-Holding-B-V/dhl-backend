@@ -66,10 +66,10 @@ controller/{trips,locker,delivery,sim}/
   `DHL_BACKEND_ENABLED`, `LOCKER_SIM_SERVE` (see application.yml). The parcel
   machine is ALWAYS the simulator — there is no real-machine mode.
 - Local dev: `docker compose -f infra/docker-compose.yml up -d` then
-  `set -a; source infra/.env; set +a; ./gradlew bootRun` — one process serves
-  both APIs, talking to itself. The env sourcing matters: secrets (e.g.
-  LOCKER_CLIENT_SECRET) have no defaults in application.yml; in the IDE, add
-  LOCKER_CLIENT_SECRET from infra/.env to the run configuration.
+  `./gradlew bootRun` — one process serves both APIs, talking to itself.
+  bootRun loads infra/.env by itself (secrets like LOCKER_CLIENT_SECRET have
+  no defaults in application.yml); for a non-Gradle IDE run configuration,
+  add the infra/.env values to the run config env.
 - Tests: `./gradlew test` (state machine + engine unit tests run anywhere;
   integration tests need Docker, auto-skip without it).
 - Secrets for the demo server live in `infra/.env` (gitignored,
