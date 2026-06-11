@@ -48,8 +48,17 @@ class LockerClientConfig {
                 val request = OAuth2AuthorizeRequest.withClientRegistrationId("locker")
                     .principal(props.lockerClient.clientId)
                     .build()
-                manager.authorize(request)?.accessToken?.tokenValue
-                    ?: throw LockerUnavailableException()
+                try {
+                    manager.authorize(request)?.accessToken?.tokenValue
+                        ?: throw LockerUnavailableException()
+                } catch (e: LockerUnavailableException) {
+                    throw e
+                } catch (e: Exception) {
+                    // misconfigured/unreachable token endpoint (e.g. missing
+                    // LOCKER_CLIENT_SECRET) is an availability problem, never
+                    // a raw 500 — and never leak the cause to the caller
+                    throw LockerUnavailableException(e)
+                }
             }
         }
     }
