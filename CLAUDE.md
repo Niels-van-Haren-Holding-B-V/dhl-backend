@@ -308,11 +308,12 @@ curl -s https://dhl-auth.vanharen-it.nl/realms/courier/.well-known/openid-config
 curl -s https://dhl-api.vanharen-it.nl/actuator/health
 ```
 
-OpenAPI docs (`/v3/api-docs`, swagger-ui) sit behind `OPENAPI_ENABLED`
-(default OFF — locker-sim pod, tests and any unconfigured run expose
-nothing). bootRun enables it for local client generation, and the demo
-deployment opts in EXPLICITLY (env + ingress in backend.yaml) because the
-spec is shared with the technical reviewers.
+OpenAPI docs (`/v3/api-docs`, swagger-ui) are controlled by `OPENAPI_ENABLED`
+(**default ON**); when enabled, SecurityConfig permits the docs paths
+anonymously so the spec can be shared with the technical reviewers and the
+frontend client generated from it. Set `OPENAPI_ENABLED=false` to lock them
+down (the deny-all chain then returns 401). The locker-sim pod has no ingress,
+so even with docs on its spec stays cluster-internal.
 
 ## CI
 

@@ -35,9 +35,9 @@ management:
 
 springdoc:
   api-docs:
-    enabled: ${OPENAPI_ENABLED:false}
+    enabled: ${OPENAPI_ENABLED:true}
   swagger-ui:
-    enabled: ${OPENAPI_ENABLED:false}
+    enabled: ${OPENAPI_ENABLED:true}
 
 dhl:
   backend:

@@ -159,12 +159,10 @@ class HandInFlowIntegrationTest {
 
     @Test
     @Order(1)
-    fun `OpenAPI endpoints are unreachable under the default config`() {
-        // OPENAPI_ENABLED defaults to false: springdoc is off and no docs paths are carved out, so the deny-all catch-all answers.
-        for (path in listOf("/v3/api-docs", "/swagger-ui.html", "/swagger-ui/index.html", "/webjars/x.js")) {
-            val response = http.get().uri(path).retrieve().toBodilessEntity()
-            assertEquals(401, response.statusCode.value(), "$path must not be anonymously reachable")
-        }
+    fun `OpenAPI spec is anonymously reachable under the default config`() {
+        // OPENAPI_ENABLED defaults to true: springdoc is on and SecurityConfig permits the docs paths.
+        val response = http.get().uri("/v3/api-docs").retrieve().toBodilessEntity()
+        assertEquals(200, response.statusCode.value(), "/v3/api-docs must be reachable when OpenAPI is enabled by default")
     }
 
     @Test
