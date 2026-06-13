@@ -10,12 +10,8 @@ import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Component
 import java.time.Instant
 
-/**
- * Polls unpublished outbox rows and pushes them to Redpanda. Sequential by
- * design: per-aggregate ordering matters more than throughput here. A failed
- * send stops the batch; rows stay unpublished and are retried next tick —
- * at-least-once, never lost.
- */
+// Sequential by design (per-aggregate ordering); a failed send breaks the batch so rows
+// stay unpublished and are retried next tick — at-least-once, never lost.
 @Component
 @ConditionalOnBooleanProperty("dhl.backend.enabled")
 class OutboxPublisher(private val outbox: OutboxRepository, private val kafka: KafkaTemplate<String, String>) {

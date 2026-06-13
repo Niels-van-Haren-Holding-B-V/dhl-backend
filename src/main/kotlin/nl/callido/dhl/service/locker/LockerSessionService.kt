@@ -10,6 +10,8 @@ import nl.callido.dhl.domain.LockerSession
 import nl.callido.dhl.domain.LockerSessionStatus
 import nl.callido.dhl.domain.ParcelStatus
 import nl.callido.dhl.dto.locker.CreateSessionResponse
+import nl.callido.dhl.dto.locker.HandInAction
+import nl.callido.dhl.dto.locker.HandOutAction
 import nl.callido.dhl.dto.locker.LockerActionResponse
 import nl.callido.dhl.dto.locker.SessionStatusDto
 import nl.callido.dhl.dto.locker.ValidationResultDto
@@ -27,14 +29,6 @@ import org.springframework.stereotype.Service
 import java.time.Instant
 import java.util.UUID
 
-/**
- * The proxy layer between the courier app and the Locker API. Owns the
- * cross-cutting rules: per-session serialization, 409-reconciliation
- * (never blind-retry a mutation), idempotent delivery registration and
- * activity tracking for the reaper.
- *
- * Fully suspend; blocking JPA work runs on Dispatchers.IO via [io].
- */
 @Service
 class LockerSessionService(
     private val client: LockerSimClient,
@@ -46,12 +40,6 @@ class LockerSessionService(
 ) {
 
     companion object {
-        /**
-         * The single definition of the courier's identity — [create] stores
-         * it, [loadOwned] enforces it; they MUST agree. Keycloak puts the
-         * human-readable username in preferred_username; the raw subject is
-         * a realm UUID.
-         */
         fun courierId(jwt: Jwt): String = jwt.getClaimAsString("preferred_username") ?: jwt.subject ?: "unknown"
     }
 
@@ -72,8 +60,7 @@ class LockerSessionService(
     suspend fun status(id: UUID): SessionStatusDto {
         val session = loadOwned(id)
         val remote = client.status(session.externalSessionId)
-        // Status polls deliberately do NOT touch lastActivityAt: an open
-        // browser tab must not keep a walked-away session alive forever.
+        // Status polls deliberately do NOT touch lastActivityAt: an open tab must not keep a walked-away session alive.
         return SessionStatusDto(session.id, remote.status, remote.state, remote.version, session.status)
     }
 
@@ -86,42 +73,51 @@ class LockerSessionService(
         ValidationResultDto(barcode, result.valid, result.reason, result.suggestedSize, parcel.size)
     }
 
-    suspend fun handInAttempt(id: UUID, barcode: String): LockerActionResponse = mutation(id) { session, version ->
-        val parcel = io { parcels.findByBarcode(barcode) } ?: throw NoSuchElementException("unknown barcode $barcode")
-        client.handIn("attempt", MutationRequest(session.externalSessionId, version, barcode, parcel.size))
+    suspend fun handIn(id: UUID, action: HandInAction, barcode: String?): LockerActionResponse = when (action) {
+        HandInAction.ATTEMPT -> mutate(id, client::handIn, "attempt", requireBarcode(barcode, action), withSize = true)
+        HandInAction.CONFIRM -> mutate(id, client::handIn, "confirm", requireBarcode(barcode, action), registerAs = ParcelStatus.HANDED_IN)
+        HandInAction.CONTINUE -> mutate(id, client::handIn, "continue")
+        HandInAction.REPORT_SIZE -> mutate(id, client::handIn, "report-incorrect-compartment-size")
+        HandInAction.REPORT_ISSUE -> mutate(id, client::handIn, "report-compartment-issue")
+        HandInAction.REOPEN -> mutate(id, client::handIn, "reopen-compartment")
     }
 
-    suspend fun handInConfirm(id: UUID, barcode: String): LockerActionResponse = mutation(
-        id,
-        afterSuccess = { deliveryService.register(barcode, ParcelStatus.HANDED_IN, it.id) },
-    ) { session, version ->
-        client.handIn("confirm", MutationRequest(session.externalSessionId, version, barcode))
+    suspend fun handOut(id: UUID, action: HandOutAction, barcode: String?): LockerActionResponse = when (action) {
+        HandOutAction.START -> mutate(id, client::handOut, "start", requireBarcode(barcode, action))
+        HandOutAction.CONFIRM ->
+            mutate(id, client::handOut, "confirm", requireBarcode(barcode, action), registerAs = ParcelStatus.HANDED_OUT)
+        HandOutAction.REPORT_MISSING ->
+            mutate(id, client::handOut, "report-missing", requireBarcode(barcode, action), registerAs = ParcelStatus.NOT_DELIVERED)
+        HandOutAction.CONTINUE -> mutate(id, client::handOut, "continue")
+        HandOutAction.ABORT -> mutate(id, client::handOut, "abort")
     }
 
-    suspend fun handInContinue(id: UUID): LockerActionResponse = simpleHandIn(id, "continue")
-    suspend fun handInReportSize(id: UUID): LockerActionResponse = simpleHandIn(id, "report-incorrect-compartment-size")
-    suspend fun handInReportIssue(id: UUID): LockerActionResponse = simpleHandIn(id, "report-compartment-issue")
-    suspend fun handInReopen(id: UUID): LockerActionResponse = simpleHandIn(id, "reopen-compartment")
+    private fun requireBarcode(barcode: String?, action: Enum<*>): String = requireNotNull(barcode) { "barcode is required for $action" }
 
-    suspend fun handOutStart(id: UUID, barcode: String): LockerActionResponse = mutation(id) { session, version ->
-        client.handOut("start", MutationRequest(session.externalSessionId, version, barcode))
-    }
-
-    suspend fun handOutConfirm(id: UUID, barcode: String): LockerActionResponse = mutation(
-        id,
-        afterSuccess = { deliveryService.register(barcode, ParcelStatus.HANDED_OUT, it.id) },
-    ) { session, version ->
-        client.handOut("confirm", MutationRequest(session.externalSessionId, version, barcode))
-    }
-
-    suspend fun handOutContinue(id: UUID): LockerActionResponse = simpleHandOut(id, "continue")
-    suspend fun handOutAbort(id: UUID): LockerActionResponse = simpleHandOut(id, "abort")
-
-    suspend fun handOutReportMissing(id: UUID, barcode: String): LockerActionResponse = mutation(
-        id,
-        afterSuccess = { deliveryService.register(barcode, ParcelStatus.NOT_DELIVERED, it.id) },
-    ) { session, version ->
-        client.handOut("report-missing", MutationRequest(session.externalSessionId, version, barcode))
+    // The parcel lookup stays INSIDE [mutation] so it runs after the ownership check:
+    // an unknown barcode on a foreign session fails ownership first, never leaking its existence.
+    private suspend fun mutate(
+        id: UUID,
+        call: suspend (String, MutationRequest) -> SimSessionSnapshot,
+        op: String,
+        barcode: String? = null,
+        withSize: Boolean = false,
+        registerAs: ParcelStatus? = null,
+    ): LockerActionResponse {
+        val afterSuccess: ((LockerSession) -> Unit)? =
+            if (registerAs != null && barcode != null) {
+                { session -> deliveryService.register(barcode, registerAs, session.id) }
+            } else {
+                null
+            }
+        return mutation(id, afterSuccess) { session, version ->
+            val size = if (withSize) {
+                io { parcels.findByBarcode(barcode!!) }?.size ?: throw NoSuchElementException("unknown barcode $barcode")
+            } else {
+                null
+            }
+            call(op, MutationRequest(session.externalSessionId, version, barcode, size))
+        }
     }
 
     suspend fun finish(id: UUID): LockerActionResponse {
@@ -141,23 +137,7 @@ class LockerSessionService(
         return response
     }
 
-    // ---- internals ----
-
-    private suspend fun simpleHandIn(id: UUID, op: String): LockerActionResponse = mutation(id) { session, version ->
-        client.handIn(op, MutationRequest(session.externalSessionId, version))
-    }
-
-    private suspend fun simpleHandOut(id: UUID, op: String): LockerActionResponse = mutation(id) { session, version ->
-        client.handOut(op, MutationRequest(session.externalSessionId, version))
-    }
-
-    /**
-     * One sim mutation, fully guarded:
-     *  - per-session Mutex
-     *  - fresh version fetched first (machine-side events also bump it)
-     *  - on 409: refetch state and return it flagged `reconciled: true` —
-     *    NEVER blind-retry the mutation, the locker already moved on
-     */
+    // On 409: refetch state and return it flagged `reconciled: true` — NEVER blind-retry the mutation.
     private suspend fun mutation(
         id: UUID,
         afterSuccess: ((LockerSession) -> Unit)? = null,
@@ -201,13 +181,8 @@ class LockerSessionService(
         sessions.save(session)
     }
 
-    /**
-     * Ownership lives HERE, at the one load site every HTTP entry point goes
-     * through — not scattered over controllers. The JWT subject must match
-     * the courier that created the session. Internal callers without a
-     * request context (the reaper finishes sessions on a scheduler thread)
-     * use the repositories directly and never pass this gate.
-     */
+    // The one ownership gate for every HTTP entry point; internal callers (the reaper, no
+    // request context) use the repositories directly and deliberately bypass this gate.
     private suspend fun loadOwned(id: UUID): LockerSession {
         val session = io { load(id) }
         val caller = ReactiveSecurityContextHolder.getContext()

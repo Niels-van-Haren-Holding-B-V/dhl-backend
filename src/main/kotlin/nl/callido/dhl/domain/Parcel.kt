@@ -20,11 +20,9 @@ class Parcel(
     val lengthCm: Int,
     val widthCm: Int,
     val heightCm: Int,
-    // Explicit: Hibernate's camel-case strategy maps the trailing single
-    // capital to "weightg", not "weight_g".
+    // Hibernate's camel-case strategy maps the trailing single capital to "weightg", not "weight_g".
     @Column(name = "weight_g") val weightG: Int,
 ) {
-    /** Derived, never stored — the real dimensions are the source of truth. */
     val size: ParcelSize?
         get() = ParcelSize.forDimensions(lengthCm, widthCm, heightCm)
 }

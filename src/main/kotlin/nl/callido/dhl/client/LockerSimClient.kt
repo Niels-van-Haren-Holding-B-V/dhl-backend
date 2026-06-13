@@ -28,12 +28,6 @@ import org.springframework.web.reactive.function.client.awaitBody
 import tools.jackson.databind.ObjectMapper
 import java.time.Duration
 
-/**
- * The only way the BFF talks to the Locker API: suspend functions over
- * WebClient. Every call goes through one circuit breaker; 409 and 422 are
- * business signals and never count as breaker failures. Connection errors
- * and 5xx do.
- */
 @Component
 class LockerSimClient(
     webClientBuilder: WebClient.Builder,
@@ -55,8 +49,6 @@ class LockerSimClient(
             .build(),
     )
 
-    // ---- courier API ----
-
     suspend fun init(): InitResponse = post("/locker-api/courier/session/init", null)
 
     suspend fun status(externalSessionId: String): StatusResponse = guarded {
@@ -74,13 +66,9 @@ class LockerSimClient(
 
     suspend fun validate(req: ValidateRequest): ValidateResponse = post("/locker-api/courier/hand-in/validate", req)
 
-    /** op: attempt | confirm | continue | report-incorrect-compartment-size | report-compartment-issue | reopen-compartment */
     suspend fun handIn(op: String, req: MutationRequest): SimSessionSnapshot = post("/locker-api/courier/hand-in/$op", req)
 
-    /** op: start | continue | confirm | report-missing | report-compartment-issue | abort */
     suspend fun handOut(op: String, req: MutationRequest): SimSessionSnapshot = post("/locker-api/courier/hand-out/$op", req)
-
-    // ---- sim control passthrough ----
 
     suspend fun simBind(req: BindRequest): SimSessionSnapshot = post("/locker-api/sim/bind", req)
 
@@ -102,8 +90,6 @@ class LockerSimClient(
     suspend fun simReserve(req: ReserveRequest): CompartmentDto = post("/locker-api/sim/reserve", req)
 
     suspend fun simReset(req: ResetRequest): SimStateSnapshot = post("/locker-api/sim/reset", req)
-
-    // ---- plumbing ----
 
     private suspend inline fun <reified T : Any> post(path: String, body: Any?): T = guarded {
         request {
@@ -127,8 +113,7 @@ class LockerSimClient(
                 val rejection = readBody<RejectionResponse>(e.responseBodyAsByteArray)
                 throw SimRejectedException(rejection?.code ?: "REJECTED", rejection?.message ?: "rejected by locker")
             }
-            // 401/403 here means OUR credentials are broken — an availability
-            // problem from the courier's point of view. Never echo details.
+            // 401/403 means OUR credentials are broken — an availability problem; never echo details.
             else -> throw LockerUnavailableException(e)
         }
     } catch (e: WebClientRequestException) {

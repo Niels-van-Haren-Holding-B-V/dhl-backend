@@ -7,11 +7,7 @@ import org.junit.jupiter.api.TestFactory
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-/**
- * Table-driven over the FULL state × event matrix: the expected table is
- * written out independently here, so any accidental change to the production
- * table fails exactly one named test case.
- */
+// Expected table is duplicated (not derived from production) on purpose: any change to the production table fails exactly one named case.
 class SessionStateMachineTest {
 
     private val expected: Map<SimSessionState, Set<SimEvent>> = mapOf(

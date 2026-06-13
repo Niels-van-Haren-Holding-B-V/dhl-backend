@@ -5,7 +5,10 @@ import nl.callido.dhl.client.LockerTokenProvider
 import nl.callido.dhl.common.ParcelSize
 import nl.callido.dhl.dto.locker.CreateSessionRequest
 import nl.callido.dhl.dto.locker.CreateSessionResponse
-import nl.callido.dhl.dto.locker.LockerActionRequest
+import nl.callido.dhl.dto.locker.HandInAction
+import nl.callido.dhl.dto.locker.HandInCommand
+import nl.callido.dhl.dto.locker.HandOutAction
+import nl.callido.dhl.dto.locker.HandOutCommand
 import nl.callido.dhl.dto.locker.LockerActionResponse
 import nl.callido.dhl.dto.sim.BindRequest
 import nl.callido.dhl.dto.sim.DoorAction
@@ -43,16 +46,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
-/**
- * Real-life failure scenarios from the interview case, end to end through the
- * BFF's HTTP API against real Postgres + Redpanda — the locker engine is only
- * reached the way production reaches it. Every test starts from a full demo
- * reset, so they run independently:
- *  - vak te klein: undersized compartment → report-size → strictly bigger door
- *  - a second door never opens while one is open (DOOR_STILL_OPEN)
- *  - hand-out happy path → HANDED_OUT registered; report-missing → NOT_DELIVERED
- *  - the reaper expires an abandoned session and registers NOT_DELIVERED
- */
 @SpringBootTest(
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
     properties = ["dhl.reaper.enabled=true"],
@@ -127,7 +120,6 @@ class LockerFailureScenariosIntegrationTest {
     @BeforeEach
     fun resetDemo() {
         serverPort = env.getProperty("local.server.port")!!.toInt()
-        // full demo reset: sim AND seeded data — every test starts clean
         post("/api/sim/reset", ResetRequest(), SimStateSnapshot::class.java)
     }
 
@@ -166,10 +158,9 @@ class LockerFailureScenariosIntegrationTest {
         val session = startBoundSession()
         setFailure(FailureMode.SIZE_TOO_SMALL, true)
 
-        // sabotage on: the machine hands out a door that is too small for an L parcel
         val tooSmall = post(
-            "/api/locker/sessions/${session.sessionId}/hand-in/attempt",
-            LockerActionRequest("DHL-IN-002"),
+            "/api/locker/sessions/${session.sessionId}/hand-in",
+            HandInCommand(HandInAction.ATTEMPT, "DHL-IN-002"),
             LockerActionResponse::class.java,
         ).body!!
         val firstDoor = assertNotNull(tooSmall.compartment)
@@ -177,18 +168,17 @@ class LockerFailureScenariosIntegrationTest {
 
         setFailure(FailureMode.SIZE_TOO_SMALL, false)
         val reported = post(
-            "/api/locker/sessions/${session.sessionId}/hand-in/report-size",
-            null,
+            "/api/locker/sessions/${session.sessionId}/hand-in",
+            HandInCommand(HandInAction.REPORT_SIZE),
             LockerActionResponse::class.java,
         ).body!!
         assertEquals(SimSessionState.READY, reported.simState)
 
-        // doors are physical: the too-small door is still open — close it first
         post("/api/sim/door", DoorRequest(firstDoor.nr, DoorAction.CLOSE), SimSessionSnapshot::class.java)
 
         val retry = post(
-            "/api/locker/sessions/${session.sessionId}/hand-in/attempt",
-            LockerActionRequest("DHL-IN-002"),
+            "/api/locker/sessions/${session.sessionId}/hand-in",
+            HandInCommand(HandInAction.ATTEMPT, "DHL-IN-002"),
             LockerActionResponse::class.java,
         ).body!!
         val secondDoor = assertNotNull(retry.compartment)
@@ -203,41 +193,35 @@ class LockerFailureScenariosIntegrationTest {
         val session = startBoundSession()
 
         val first = post(
-            "/api/locker/sessions/${session.sessionId}/hand-in/attempt",
-            LockerActionRequest("DHL-IN-001"),
+            "/api/locker/sessions/${session.sessionId}/hand-in",
+            HandInCommand(HandInAction.ATTEMPT, "DHL-IN-001"),
             LockerActionResponse::class.java,
         ).body!!
         assertEquals(SimSessionState.HAND_IN_DOOR_OPEN, first.simState)
         val openNr = assertNotNull(first.compartment).nr
 
-        // the same session cannot open a second door: state machine blocks the
-        // attempt and the response carries the current (reconciled) truth
         val second = post(
-            "/api/locker/sessions/${session.sessionId}/hand-in/attempt",
-            LockerActionRequest("DHL-IN-002"),
+            "/api/locker/sessions/${session.sessionId}/hand-in",
+            HandInCommand(HandInAction.ATTEMPT, "DHL-IN-002"),
             LockerActionResponse::class.java,
         )
         assertEquals(200, second.statusCode.value())
         assertEquals(true, second.body!!.reconciled, "second attempt must reconcile, not open a door")
 
-        // the courier walks away with the door open; a NEW courier arrives.
-        // Doors are physical — the abandoned door is still open, so the new
-        // session's attempt is rejected with DOOR_STILL_OPEN
         post("/api/locker/sessions/${session.sessionId}/finish", null, LockerActionResponse::class.java)
         val session2 = startBoundSession()
-        val rejected = http.post().uri("/api/locker/sessions/${session2.sessionId}/hand-in/attempt")
+        val rejected = http.post().uri("/api/locker/sessions/${session2.sessionId}/hand-in")
             .headers { it.setBearerAuth("test-token") }
             .contentType(MediaType.APPLICATION_JSON)
-            .body(LockerActionRequest("DHL-IN-002"))
+            .body(HandInCommand(HandInAction.ATTEMPT, "DHL-IN-002"))
             .retrieve().toEntity(RejectionResponse::class.java)
         assertEquals(422, rejected.statusCode.value())
         assertEquals("DOOR_STILL_OPEN", rejected.body!!.code)
 
-        // someone closes the abandoned door — now the flow continues
         post("/api/sim/door", DoorRequest(openNr, DoorAction.CLOSE), SimSessionSnapshot::class.java)
         val fresh = post(
-            "/api/locker/sessions/${session2.sessionId}/hand-in/attempt",
-            LockerActionRequest("DHL-IN-002"),
+            "/api/locker/sessions/${session2.sessionId}/hand-in",
+            HandInCommand(HandInAction.ATTEMPT, "DHL-IN-002"),
             LockerActionResponse::class.java,
         ).body!!
         assertEquals(SimSessionState.HAND_IN_DOOR_OPEN, fresh.simState)
@@ -257,8 +241,8 @@ class LockerFailureScenariosIntegrationTest {
         val session = startBoundSession()
 
         val start = post(
-            "/api/locker/sessions/${session.sessionId}/hand-out/start",
-            LockerActionRequest("DHL-OUT-001"),
+            "/api/locker/sessions/${session.sessionId}/hand-out",
+            HandOutCommand(HandOutAction.START, "DHL-OUT-001"),
             LockerActionResponse::class.java,
         ).body!!
         assertEquals(SimSessionState.HAND_OUT_DOOR_OPEN, start.simState)
@@ -267,8 +251,8 @@ class LockerFailureScenariosIntegrationTest {
 
         post("/api/sim/door", DoorRequest(nr, DoorAction.CLOSE), SimSessionSnapshot::class.java)
         val confirm = post(
-            "/api/locker/sessions/${session.sessionId}/hand-out/confirm",
-            LockerActionRequest("DHL-OUT-001"),
+            "/api/locker/sessions/${session.sessionId}/hand-out",
+            HandOutCommand(HandOutAction.CONFIRM, "DHL-OUT-001"),
             LockerActionResponse::class.java,
         ).body!!
         assertEquals(SimSessionState.HAND_OUT_COMPLETED, confirm.simState)
@@ -279,20 +263,19 @@ class LockerFailureScenariosIntegrationTest {
         )
         assertEquals(1, countOutbox("DHL-OUT-001"))
 
-        // -- report-missing on a fresh demo state --
         post("/api/sim/reset", ResetRequest(), SimStateSnapshot::class.java)
         val session2 = startBoundSession()
         setFailure(FailureMode.PARCEL_MISSING, true)
         val missing = post(
-            "/api/locker/sessions/${session2.sessionId}/hand-out/start",
-            LockerActionRequest("DHL-OUT-001"),
+            "/api/locker/sessions/${session2.sessionId}/hand-out",
+            HandOutCommand(HandOutAction.START, "DHL-OUT-001"),
             LockerActionResponse::class.java,
         ).body!!
         assertEquals(false, missing.parcelPresent, "PARCEL_MISSING must surface an empty compartment")
 
         val reportedMissing = post(
-            "/api/locker/sessions/${session2.sessionId}/hand-out/report-missing",
-            LockerActionRequest("DHL-OUT-001"),
+            "/api/locker/sessions/${session2.sessionId}/hand-out",
+            HandOutCommand(HandOutAction.REPORT_MISSING, "DHL-OUT-001"),
             LockerActionResponse::class.java,
         ).body!!
         assertEquals(SimSessionState.READY, reportedMissing.simState)
@@ -314,24 +297,21 @@ class LockerFailureScenariosIntegrationTest {
 
     @Test
     fun `another courier cannot read or mutate a session they do not own`() {
-        val session = startBoundSession() // owned by subject "test-token"
+        val session = startBoundSession()
 
-        // courier B mutates A's session → constant 403, nothing leaks
-        val foreignAttempt = http.post().uri("/api/locker/sessions/${session.sessionId}/hand-in/attempt")
+        val foreignAttempt = http.post().uri("/api/locker/sessions/${session.sessionId}/hand-in")
             .headers { it.setBearerAuth("courier-B") }
             .contentType(MediaType.APPLICATION_JSON)
-            .body(LockerActionRequest("DHL-IN-001"))
+            .body(HandInCommand(HandInAction.ATTEMPT, "DHL-IN-001"))
             .retrieve().toEntity(Map::class.java)
         assertEquals(403, foreignAttempt.statusCode.value())
         assertEquals("Geen toegang tot deze sessie", foreignAttempt.body!!["message"])
 
-        // status is gated by the same check
         val foreignStatus = http.get().uri("/api/locker/sessions/${session.sessionId}")
             .headers { it.setBearerAuth("courier-B") }
             .retrieve().toEntity(Map::class.java)
         assertEquals(403, foreignStatus.statusCode.value())
 
-        // the session is untouched: still ACTIVE, no door opened, nothing registered
         assertEquals(
             "ACTIVE",
             jdbc.queryForObject("select status from locker_session where id = ?", String::class.java, session.sessionId),
@@ -348,27 +328,20 @@ class LockerFailureScenariosIntegrationTest {
         )
         assertEquals(0, jdbc.queryForObject("select count(*) from outbox", Int::class.java))
 
-        // the owner is unaffected and continues normally
         val owned = post(
-            "/api/locker/sessions/${session.sessionId}/hand-in/attempt",
-            LockerActionRequest("DHL-IN-001"),
+            "/api/locker/sessions/${session.sessionId}/hand-in",
+            HandInCommand(HandInAction.ATTEMPT, "DHL-IN-001"),
             LockerActionResponse::class.java,
         ).body!!
         assertEquals(SimSessionState.HAND_IN_DOOR_OPEN, owned.simState)
         post("/api/sim/door", DoorRequest(assertNotNull(owned.compartment).nr, DoorAction.CLOSE), SimSessionSnapshot::class.java)
     }
 
-    /**
-     * Doubles as the ownership-gate counterpart: the reaper runs on a
-     * scheduler thread with NO authenticated courier and must still be able
-     * to finish expired sessions — it talks to the sim client and the
-     * repositories directly and never passes the per-request ownership check.
-     */
+    // The reaper runs on a scheduler thread with no authenticated courier, so it bypasses the per-request ownership check entirely.
     @Test
     fun `the reaper expires an abandoned session and registers NOT_DELIVERED for open parcels`() {
         val session = startBoundSession()
 
-        // the courier walks away: backdate the session past the reaper timeout
         jdbc.update(
             "update locker_session set last_activity_at = now() - interval '10 minutes' where id = ?",
             session.sessionId,
@@ -379,7 +352,6 @@ class LockerFailureScenariosIntegrationTest {
             "EXPIRED",
             jdbc.queryForObject("select status from locker_session where id = ?", String::class.java, session.sessionId),
         )
-        // all three seeded parcels on the stop were still EXPECTED → all registered NOT_DELIVERED
         assertEquals(
             3,
             jdbc.queryForObject(
@@ -392,7 +364,6 @@ class LockerFailureScenariosIntegrationTest {
             0,
             jdbc.queryForObject("select count(*) from parcel where status = 'EXPECTED'", Int::class.java),
         )
-        // and every registration produced exactly one outbox event
         assertEquals(
             3,
             jdbc.queryForObject(
@@ -404,8 +375,6 @@ class LockerFailureScenariosIntegrationTest {
 
     @Test
     fun `sessionless register is idempotent - the test that would have caught the NULL hole`() {
-        // a doorstep registration carries no sessionId; calling it twice must
-        // still produce exactly one registration row and one outbox row
         repeat(2) {
             val response = post(
                 "/api/deliveries/register",
@@ -423,24 +392,21 @@ class LockerFailureScenariosIntegrationTest {
             ),
         )
         assertEquals(1, countOutbox("DHL-IN-001"))
-        // session-scoped dedupe stays covered by the hand-in happy-path IT
     }
 
     @Test
     fun `error bodies are constant - internal ids and states never leak`() {
-        // unknown session: 404 without echoing the id
         val unknown = http.get().uri("/api/locker/sessions/${java.util.UUID.randomUUID()}")
             .headers { it.setBearerAuth("test-token") }
             .retrieve().toEntity(Map::class.java)
         assertEquals(404, unknown.statusCode.value())
         assertEquals("Niet gevonden", unknown.body!!["message"])
 
-        // finished session: 409 without echoing the session state
         val session = startBoundSession()
         post("/api/locker/sessions/${session.sessionId}/finish", null, LockerActionResponse::class.java)
         val onFinished = post(
-            "/api/locker/sessions/${session.sessionId}/hand-in/attempt",
-            LockerActionRequest("DHL-IN-001"),
+            "/api/locker/sessions/${session.sessionId}/hand-in",
+            HandInCommand(HandInAction.ATTEMPT, "DHL-IN-001"),
             Map::class.java,
         )
         assertEquals(409, onFinished.statusCode.value())
@@ -457,7 +423,6 @@ class LockerFailureScenariosIntegrationTest {
         assertEquals(400, response.statusCode.value())
         assertEquals("Ongeldig verzoek", response.body!!["message"])
 
-        // rejected at the front door: no reservation, no parcel row
         val machine = get("/api/sim/state", SimStateSnapshot::class.java)
         assertEquals(0, machine.compartments.count { it.state.name == "RESERVED" })
         assertEquals(

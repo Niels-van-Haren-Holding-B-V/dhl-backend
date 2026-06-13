@@ -16,20 +16,11 @@ import org.springframework.web.reactive.function.client.WebClient
 @Configuration
 class LockerClientConfig {
 
-    // spring-boot-webclient ships the classes but (unlike Boot 3) no
-    // WebClient.Builder bean in this setup — provide it ourselves.
+    // Boot 4 (unlike Boot 3) ships no WebClient.Builder bean here — provide it ourselves.
     @Bean
     fun webClientBuilder(): WebClient.Builder = WebClient.builder()
 
-    /**
-     * Client-credentials flow against the `locker` realm. The registration is
-     * built by hand (token endpoint from config, no issuer discovery) so the
-     * app boots even when Keycloak is still starting. The manager caches the
-     * token and refreshes it before expiry; the blocking token request runs
-     * on Dispatchers.IO behind the suspend interface.
-     *
-     * The token value must never end up in a log, response or error message.
-     */
+    // The token value must never end up in a log, response or error message.
     @Bean
     fun lockerTokenProvider(props: DhlProperties): LockerTokenProvider {
         val registration = ClientRegistration.withRegistrationId("locker")
@@ -54,9 +45,7 @@ class LockerClientConfig {
                 } catch (e: LockerUnavailableException) {
                     throw e
                 } catch (e: Exception) {
-                    // misconfigured/unreachable token endpoint (e.g. missing
-                    // LOCKER_CLIENT_SECRET) is an availability problem, never
-                    // a raw 500 — and never leak the cause to the caller
+                    // Never leak the cause to the caller; a broken token endpoint is an availability problem.
                     throw LockerUnavailableException(e)
                 }
             }

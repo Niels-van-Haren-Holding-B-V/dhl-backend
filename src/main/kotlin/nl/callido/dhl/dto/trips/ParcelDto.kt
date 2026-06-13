@@ -11,6 +11,5 @@ data class ParcelDto(
     val direction: ParcelDirection,
     val status: ParcelStatus,
     val dimensions: DimensionsDto,
-    /** Derived from the real dimensions — t-shirt size of the smallest fitting compartment. */
     val size: ParcelSize?,
 )

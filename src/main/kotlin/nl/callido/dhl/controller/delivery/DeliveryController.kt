@@ -12,10 +12,6 @@ import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RestController
 
-/**
- * The pre-existing registration endpoint; the locker flow calls the same
- * service internally on confirm.
- */
 @RestController
 @RequestMapping("/api/deliveries")
 @ConditionalOnBooleanProperty("dhl.backend.enabled")

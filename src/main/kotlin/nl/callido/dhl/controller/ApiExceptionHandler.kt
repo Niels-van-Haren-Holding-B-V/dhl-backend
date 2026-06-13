@@ -18,11 +18,8 @@ import org.springframework.web.bind.annotation.ExceptionHandler
 import org.springframework.web.bind.annotation.RestControllerAdvice
 import org.springframework.web.bind.support.WebExchangeBindException
 
-/**
- * Error contract for the courier-facing API. Messages are deliberately
- * constant strings: nothing from the locker side (least of all a token or
- * stack trace) may leak into a response.
- */
+// Messages are deliberately constant strings: nothing from the locker side (least of all a
+// token or stack trace) may leak into a response.
 @RestControllerAdvice(
     assignableTypes = [
         TripController::class,
@@ -58,9 +55,7 @@ class ApiExceptionHandler {
     fun notActive(e: SessionNotActiveException): ResponseEntity<ErrorMessage> =
         ResponseEntity.status(HttpStatus.CONFLICT).body(ErrorMessage("Sessie is niet meer actief"))
 
-    // Exception messages carry internals (ids, states) and are for the log,
-    // never for the response body. IllegalStateException deliberately has NO
-    // mapping anymore: an unexpected state is a bug and should surface as 500.
+    // IllegalStateException deliberately has NO mapping: an unexpected state is a bug, surface it as 500.
     @ExceptionHandler(NoSuchElementException::class)
     fun notFound(e: NoSuchElementException): ResponseEntity<ErrorMessage> {
         log.debug("not found: {}", e.message)

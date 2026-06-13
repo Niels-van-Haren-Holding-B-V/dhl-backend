@@ -21,11 +21,6 @@ import java.time.Instant
 import java.util.EnumSet
 import java.util.UUID
 
-/**
- * In-memory simulation of one physical parcel machine. Deliberately stateful
- * and single-instance: a real machine is exactly that. All entry points are
- * synchronized; the interesting concurrency lives in the BFF, not here.
- */
 @Component
 class LockerSimEngine {
 
@@ -34,7 +29,6 @@ class LockerSimEngine {
     private class SimSession(val id: String, val qrCode: String, var state: SimSessionState, var version: Int, var boundAt: Instant?)
 
     private class Compartment(val spec: CompartmentSpec, var state: CompartmentState, var barcode: String?) {
-        /** What the door was before it opened — a walkaway reverts to this. */
         var openedFrom: CompartmentState = CompartmentState.FREE
 
         fun open(barcode: String?) {
@@ -43,7 +37,6 @@ class LockerSimEngine {
             if (barcode != null) this.barcode = barcode
         }
 
-        /** Door never closed properly: revert. A reservation survives, a hand-out parcel stays inside. */
         fun revertOpenDoor() {
             state = openedFrom
             if (openedFrom == CompartmentState.FREE) barcode = null
@@ -65,22 +58,15 @@ class LockerSimEngine {
     private val failures: EnumSet<FailureMode> = EnumSet.noneOf(FailureMode::class.java)
     private val eventLog = ArrayDeque<SimLogEntry>()
 
-    /** After report-incorrect-compartment-size: barcode → size that proved too small. */
     private val sizeHints = mutableMapOf<String, ParcelSize>()
 
     init {
         loadConfig(LockerConfigurations.DEFAULT)
     }
 
-    // ---- courier API ----
-
     @Synchronized
     fun init(): InitResponse {
         maybeDelay()
-        // A new courier session displaces a dangling previous one — but doors
-        // are PHYSICAL: software cannot shut them. A door left open stays
-        // DOOR_OPEN until someone closes it (sim/door CLOSE); until then any
-        // door-opening action rejects with DOOR_STILL_OPEN.
         activeNr = null
         val id = UUID.randomUUID().toString()
         val s = SimSession(id, "DHL-LOCKER:$id", SimSessionState.CREATED, 0, null)
@@ -93,14 +79,11 @@ class LockerSimEngine {
     fun status(sessionId: String): StatusResponse {
         maybeDelay()
         val s = requireSession(sessionId)
-        // Not logged: the BFF polls this; it would drown the event log.
         return StatusResponse(if (s.state == SimSessionState.CREATED) "NOT_READY" else "READY", s.state, s.version)
     }
 
     @Synchronized
     fun finished(req: MutationRequest): SimSessionSnapshot = mutate("session/finished", SimEvent.FINISH, req) { _ ->
-        // Finishing does NOT close a physical door: a door left open stays
-        // open (and blocks new door-opening actions) until sim/door CLOSE.
         activeNr = null
         Extras()
     }.also { session?.state = SimSessionState.FINISHED }
@@ -167,8 +150,6 @@ class LockerSimEngine {
         mutate("hand-in/report-incorrect-compartment-size", SimEvent.HAND_IN_REPORT_SIZE, req) { s ->
             val comp = activeCompartment()
             comp.barcode?.let { sizeHints[it] = comp.spec.size }
-            // the parcel never went in: the DOOR STAYS PHYSICALLY OPEN, but
-            // closing it must free the compartment, not re-occupy it
             comp.barcode = null
             comp.openedFrom = CompartmentState.FREE
             activeNr = null
@@ -190,9 +171,6 @@ class LockerSimEngine {
     @Synchronized
     fun handInReopen(req: MutationRequest): SimSessionSnapshot = mutate("hand-in/reopen-compartment", SimEvent.HAND_IN_REOPEN, req) { s ->
         val comp = activeCompartment()
-        // go through open() so openedFrom records OCCUPIED: a walkaway after
-        // a reopen must revert to an occupied compartment, not erase the
-        // parcel that is physically inside
         comp.open(comp.barcode)
         s.state = SimSessionState.HAND_IN_DOOR_OPEN
         Extras(comp)
@@ -229,8 +207,6 @@ class LockerSimEngine {
     fun handOutReportMissing(req: MutationRequest): SimSessionSnapshot =
         mutate("hand-out/report-missing", SimEvent.HAND_OUT_REPORT_MISSING, req) { s ->
             val comp = activeCompartment()
-            // the compartment turned out empty: the DOOR STAYS PHYSICALLY
-            // OPEN; closing it frees the compartment instead of re-occupying
             comp.barcode = null
             comp.openedFrom = CompartmentState.FREE
             activeNr = null
@@ -256,8 +232,6 @@ class LockerSimEngine {
         Extras()
     }
 
-    // ---- machine-side (sim control) API ----
-
     @Synchronized
     fun bind(qrCode: String): SimSessionSnapshot {
         maybeDelay()
@@ -280,7 +254,6 @@ class LockerSimEngine {
         val comp = compartments.find { it.spec.nr == compartmentNr }
             ?: throw SimEngineRejectedException("UNKNOWN_COMPARTMENT", "no compartment $compartmentNr")
         if (action == DoorAction.LEAVE_OPEN) {
-            // The courier walks away — nothing happens; the BFF reaper will clean up.
             log("sim/door", "compartment ${comp.spec.label} left open")
             return snapshot(Extras(comp))
         }
@@ -290,9 +263,6 @@ class LockerSimEngine {
         }
         if (comp.spec.nr != activeNr) {
             if (comp.state == CompartmentState.DOOR_OPEN) {
-                // Orphaned door from an abandoned session: shutting it reverts
-                // the compartment — a reservation stays reserved, a hand-out
-                // parcel stays inside, an unreserved hand-in door frees up.
                 comp.revertOpenDoor()
                 log("sim/door", "orphaned compartment ${comp.spec.label} closed")
                 return snapshot(Extras(comp))
@@ -344,15 +314,11 @@ class LockerSimEngine {
         eventLog = eventLog.toList(),
     )
 
-    // ---- internals ----
-
     private fun loadConfig(name: String) {
         val specs = LockerConfigurations.byName[name]
             ?: throw SimEngineRejectedException("UNKNOWN_CONFIG", "no locker configuration named $name")
         configName = name
         compartments = specs.map { Compartment(it, CompartmentState.FREE, null) }.toMutableList()
-        // The machine starts with one parcel waiting for hand-out, like a real
-        // locker that received a consumer drop-off overnight.
         compartments.first { it.spec.enabled && it.spec.size == ParcelSize.M }.apply {
             state = CompartmentState.OCCUPIED
             barcode = LockerConfigurations.PRELOADED_HAND_OUT_BARCODE
@@ -379,9 +345,6 @@ class LockerSimEngine {
     }
 
     private fun machineMutate(endpoint: String, event: SimEvent, block: () -> Extras): SimSessionSnapshot {
-        // Machine-side actions (scan, door sensor) carry no version: hardware
-        // does not do optimistic locking. They still advance the version so
-        // concurrent courier mutations turn into honest 409s.
         val s = session!!
         if (!SessionStateMachine.isAllowed(s.state, event)) {
             throw SimEngineConflictException("ILLEGAL_TRANSITION ${s.state} -> $event", snapshot(Extras()))
@@ -401,19 +364,11 @@ class LockerSimEngine {
         }
         val free = compartments.filter { it.spec.enabled && it.state == CompartmentState.FREE }
         if (honourFailure && FailureMode.SIZE_TOO_SMALL in failures) {
-            // Sabotage: deliberately hand out a compartment one or more sizes
-            // too small so the report-incorrect-compartment-size flow can run.
             free.filter { it.spec.size < minSize }.maxByOrNull { it.spec.size }?.let { return it }
         }
         return free.filter { it.spec.size >= minSize }.minByOrNull { it.spec.size }
     }
 
-    /**
-     * Pre-announcement: an upstream-announced parcel reserves the smallest
-     * fitting free door AHEAD of the courier's visit, so capacity is
-     * guaranteed and visible on the machine. Idempotent per barcode; no
-     * fitting free door -> NO_CAPACITY (the parcel routes elsewhere).
-     */
     @Synchronized
     fun reserve(barcode: String, size: ParcelSize): CompartmentDto {
         maybeDelay()
@@ -431,11 +386,6 @@ class LockerSimEngine {
         return comp.toDto()
     }
 
-    /**
-     * The reservation for a barcode, unless a size hint (vak te klein!)
-     * outgrew it — then the reservation is released and selection falls
-     * through to a bigger free door.
-     */
     private fun reservationFor(barcode: String): Compartment? {
         val reserved = compartments.find { it.state == CompartmentState.RESERVED && it.barcode == barcode }
             ?: return null
@@ -448,14 +398,6 @@ class LockerSimEngine {
         return reserved
     }
 
-    /**
-     * Doors are physical: any DOOR_OPEN compartment blocks every
-     * door-opening action. DEFECT compartments are deliberately EXEMPT even
-     * though a door reported as defect may well still be physically open
-     * (report-compartment-issue leaves it open): one broken compartment
-     * must not take the whole machine out of service. Field service closes
-     * and repairs it; until then the machine proceeds and we warn.
-     */
     private fun requireAllDoorsClosed() {
         compartments.find { it.state == CompartmentState.DOOR_OPEN }?.let {
             throw SimEngineRejectedException("DOOR_STILL_OPEN", "close compartment ${it.spec.label} first")

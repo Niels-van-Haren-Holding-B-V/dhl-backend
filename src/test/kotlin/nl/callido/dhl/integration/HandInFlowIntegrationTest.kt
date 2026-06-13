@@ -8,6 +8,8 @@ import nl.callido.dhl.client.LockerSimBaseUrl
 import nl.callido.dhl.client.LockerTokenProvider
 import nl.callido.dhl.dto.locker.CreateSessionRequest
 import nl.callido.dhl.dto.locker.CreateSessionResponse
+import nl.callido.dhl.dto.locker.HandInAction
+import nl.callido.dhl.dto.locker.HandInCommand
 import nl.callido.dhl.dto.locker.LockerActionRequest
 import nl.callido.dhl.dto.locker.LockerActionResponse
 import nl.callido.dhl.dto.locker.SessionStatusDto
@@ -54,12 +56,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
-/**
- * The case's minimum bar, end to end against real Postgres + Redpanda:
- *  - full hand-in happy path → registration + outbox row + Kafka message
- *  - duplicate confirm → reconciled response, still exactly one outbox row
- *  - two parallel continues → both 200, at least one `reconciled: true`
- */
 @SpringBootTest(
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
     properties = ["dhl.reaper.enabled=false"],
@@ -113,9 +109,7 @@ class HandInFlowIntegrationTest {
         @JvmStatic fun stubBaseUrl(): LockerSimBaseUrl = LockerSimBaseUrl { "http://localhost:$serverPort" }
     }
 
-    // @TestBean replaces the app beans reliably (definition-level override).
-    // Keycloak is stubbed out; the app talks to ITSELF over real HTTP — the
-    // security chains, locks, outbox and Kafka are the real thing.
+    // Keycloak is stubbed via @TestBean; the app calls ITSELF over real HTTP, so security chains, locks, outbox and Kafka are real.
     @TestBean(name = "courierJwtDecoder", methodName = "stubCourierDecoder")
     lateinit var courierJwtDecoder: ReactiveJwtDecoder
 
@@ -137,7 +131,7 @@ class HandInFlowIntegrationTest {
         serverPort = env.getProperty("local.server.port")!!.toInt()
     }
 
-    // Lenient status handling: assertions check status/body, errors must not throw.
+    // Lenient status handler: RestClient must not throw on 4xx/5xx — tests assert on status/body instead.
     private val http: RestClient by lazy {
         RestClient.builder()
             .baseUrl("http://localhost:${env.getProperty("local.server.port")}")
@@ -166,8 +160,7 @@ class HandInFlowIntegrationTest {
     @Test
     @Order(1)
     fun `OpenAPI endpoints are unreachable under the default config`() {
-        // OPENAPI_ENABLED defaults to false: springdoc is off AND the public
-        // chain carves out no docs paths — the deny-all catch-all answers
+        // OPENAPI_ENABLED defaults to false: springdoc is off and no docs paths are carved out, so the deny-all catch-all answers.
         for (path in listOf("/v3/api-docs", "/swagger-ui.html", "/swagger-ui/index.html", "/webjars/x.js")) {
             val response = http.get().uri(path).retrieve().toBodilessEntity()
             assertEquals(401, response.statusCode.value(), "$path must not be anonymously reachable")
@@ -186,7 +179,6 @@ class HandInFlowIntegrationTest {
         val session = post("/api/locker/sessions", CreateSessionRequest(lockerStop.id), CreateSessionResponse::class.java).body!!
         assertEquals("NOT_READY", get("/api/locker/sessions/${session.sessionId}", SessionStatusDto::class.java).status)
 
-        // the machine scans the QR
         post("/api/sim/bind", BindRequest(session.qrPayload), SimSessionSnapshot::class.java)
         assertEquals("READY", get("/api/locker/sessions/${session.sessionId}", SessionStatusDto::class.java).status)
 
@@ -199,8 +191,8 @@ class HandInFlowIntegrationTest {
         assertEquals("S", validation.parcelSize?.name)
 
         val attempt = post(
-            "/api/locker/sessions/${session.sessionId}/hand-in/attempt",
-            LockerActionRequest(barcode),
+            "/api/locker/sessions/${session.sessionId}/hand-in",
+            HandInCommand(HandInAction.ATTEMPT, barcode),
             LockerActionResponse::class.java,
         ).body!!
         assertEquals(SimSessionState.HAND_IN_DOOR_OPEN, attempt.simState)
@@ -209,28 +201,25 @@ class HandInFlowIntegrationTest {
         post("/api/sim/door", DoorRequest(compartmentNr, DoorAction.CLOSE), SimSessionSnapshot::class.java)
 
         val confirm = post(
-            "/api/locker/sessions/${session.sessionId}/hand-in/confirm",
-            LockerActionRequest(barcode),
+            "/api/locker/sessions/${session.sessionId}/hand-in",
+            HandInCommand(HandInAction.CONFIRM, barcode),
             LockerActionResponse::class.java,
         ).body!!
         assertEquals(false, confirm.reconciled)
         assertEquals(SimSessionState.HAND_IN_COMPLETED, confirm.simState)
 
-        // registration + outbox written in the same transaction
         assertEquals(1, countRegistrations(session.sessionId, barcode))
         assertEquals(1, countOutbox(barcode))
         assertEquals("HANDED_IN", jdbc.queryForObject("select status from parcel where barcode = ?", String::class.java, barcode))
 
-        // duplicate confirm: locker says 409 (illegal transition) → reconciled truth, no second outbox row
         val duplicate = post(
-            "/api/locker/sessions/${session.sessionId}/hand-in/confirm",
-            LockerActionRequest(barcode),
+            "/api/locker/sessions/${session.sessionId}/hand-in",
+            HandInCommand(HandInAction.CONFIRM, barcode),
             LockerActionResponse::class.java,
         ).body!!
         assertEquals(true, duplicate.reconciled)
         assertEquals(1, countOutbox(barcode))
 
-        // outbox publisher pushes to Redpanda
         await().atMost(Duration.ofSeconds(15)).until {
             jdbc.queryForObject(
                 "select count(*) from outbox where aggregate_id = ? and published_at is not null",
@@ -251,8 +240,8 @@ class HandInFlowIntegrationTest {
             (1..2).map {
                 async(Dispatchers.IO) {
                     post(
-                        "/api/locker/sessions/$sessionId/hand-in/continue",
-                        null,
+                        "/api/locker/sessions/$sessionId/hand-in",
+                        HandInCommand(HandInAction.CONTINUE),
                         LockerActionResponse::class.java,
                     )
                 }

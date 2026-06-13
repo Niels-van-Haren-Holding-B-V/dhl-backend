@@ -18,10 +18,6 @@ import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RestController
 
-/**
- * Control surface for the "physical world" of the machine — scanning the
- * QR, doors closing, hardware failing. Drives the parcel-machine page.
- */
 @RestController
 @RequestMapping("/locker-api/sim")
 @ConditionalOnBooleanProperty("dhl.locker-sim.serve")
@@ -39,7 +35,6 @@ class SimControlController(private val engine: LockerSimEngine) {
     @PostMapping("/failures")
     suspend fun failures(@RequestBody req: FailureRequest): SimStateSnapshot = sim { engine.setFailure(req.mode, req.enabled) }
 
-    /** Pre-announcement from the platform: reserve a fitting door for a parcel. */
     @PostMapping("/reserve")
     suspend fun reserve(@RequestBody req: ReserveRequest): CompartmentDto = sim { engine.reserve(req.barcode, req.size) }
 

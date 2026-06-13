@@ -18,13 +18,8 @@ import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 
-/**
- * The Locker API, as served by the locker platform.
- * Lives under the `locker` realm — only the BFF's client-credentials identity calls it.
- *
- * Handlers hop to Dispatchers.IO: the engine is synchronized and the
- * SLOW_NETWORK failure mode genuinely sleeps — never on an event loop.
- */
+// Handlers hop to Dispatchers.IO: the engine is synchronized and SLOW_NETWORK genuinely
+// sleeps — never on the event loop.
 @RestController
 @RequestMapping("/locker-api/courier")
 @ConditionalOnBooleanProperty("dhl.locker-sim.serve")

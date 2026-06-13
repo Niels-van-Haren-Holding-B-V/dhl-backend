@@ -18,21 +18,12 @@ import org.springframework.web.cors.CorsConfiguration
 import org.springframework.web.cors.reactive.CorsConfigurationSource
 import org.springframework.web.cors.reactive.UrlBasedCorsConfigurationSource
 
-/**
- * Two independent resource-server chains:
- *  - "/api" routes        → realm `courier` (the courier app / machine page)
- *  - "/locker-api" routes → realm `locker`  (only the backend's own
- *                           client-credentials identity ever holds such a token)
- *
- * Decoders are supplier-based so the app starts without Keycloak being up;
- * OIDC metadata is fetched lazily on the first request per chain.
- */
+// Decoders are supplier-based so the app starts without Keycloak up; OIDC metadata is
+// fetched lazily on the first request per chain.
 @Configuration
 @EnableWebFluxSecurity
 class SecurityConfig(
     private val props: DhlProperties,
-    // docs endpoints exist only in dev (OPENAPI_ENABLED); their anonymous
-    // carve-out must come and go with them — no leftover hole by default
     @param:Value("\${springdoc.api-docs.enabled:false}") private val openApiEnabled: Boolean,
 ) {
 
@@ -46,7 +37,6 @@ class SecurityConfig(
         if (jwksOverride.isNullOrBlank()) {
             ReactiveJwtDecoders.fromIssuerLocation(issuer)
         } else {
-            // Dockerized local stack: keys fetched in-network, issuer still validated.
             NimbusReactiveJwtDecoder.withJwkSetUri(jwksOverride).build()
                 .apply { setJwtValidator(JwtValidators.createDefaultWithIssuer(issuer)) }
         }
@@ -55,10 +45,8 @@ class SecurityConfig(
     @Bean
     @Order(0)
     fun publicChain(http: ServerHttpSecurity): SecurityWebFilterChain {
-        // health stays anonymous: kubelet probes and the CI smoke check
         val open = mutableListOf("/actuator/health", "/actuator/health/**")
         if (openApiEnabled) {
-            // dev-only: npm run generate fetches the spec without a token
             open += listOf("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html", "/webjars/**")
         }
         return http
@@ -73,7 +61,6 @@ class SecurityConfig(
     fun courierChain(http: ServerHttpSecurity, courierJwtDecoder: ReactiveJwtDecoder): SecurityWebFilterChain = http
         .securityMatcher(pathMatchers("/api/**"))
         .authorizeExchange {
-            // CORS preflights carry no credentials by spec
             it.pathMatchers(HttpMethod.OPTIONS).permitAll()
             it.anyExchange().authenticated()
         }

@@ -15,12 +15,6 @@ data class DhlProperties(
 ) {
     data class Backend(val enabled: Boolean)
 
-    /**
-     * The jwks overrides exist for the dockerized local stack: the backend
-     * container fetches keys via the compose network (http://keycloak:8081)
-     * while tokens carry the public issuer (http://localhost:8081). Blank =
-     * derive everything from the issuer.
-     */
     data class Security(
         val courierIssuer: String,
         val lockerIssuer: String,

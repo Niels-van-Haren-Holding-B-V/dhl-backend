@@ -19,15 +19,6 @@ import org.springframework.stereotype.Component
 import tools.jackson.databind.ObjectMapper
 import java.util.UUID
 
-/**
- * Kafka ingestion from upstream planning systems: announcements on
- * `parcel-intake` become EXPECTED hand-in parcels on a stop — but only after
- * the machine RESERVES a fitting compartment (pre-announcement). The t-shirt
- * size is derived from the announced dimensions; no fitting free door means
- * the parcel is not planned onto this machine (it would route elsewhere).
- * Idempotent by barcode; malformed messages are logged and skipped, never
- * blocking the partition.
- */
 @Component
 @ConditionalOnBooleanProperty("dhl.backend.enabled")
 class ParcelIntakeConsumer(
@@ -62,9 +53,7 @@ class ParcelIntakeConsumer(
             log.warn("parcel-intake: no LOCKER stop to attach {} to, skipping", announcement.barcode)
             return
         }
-        // Pre-announcement: the machine must reserve capacity FIRST. No
-        // reservation, no planning — the parcel would be routed to another
-        // machine. (Kafka listener thread, blocking bridge is fine here.)
+        // Kafka listener thread (not the event loop), so the runBlocking bridge is fine here.
         val reserved = try {
             runBlocking { client.simReserve(ReserveRequest(announcement.barcode, size)) }
         } catch (e: SimRejectedException) {

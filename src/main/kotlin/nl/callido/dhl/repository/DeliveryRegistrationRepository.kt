@@ -7,11 +7,8 @@ import java.util.UUID
 
 interface DeliveryRegistrationRepository : JpaRepository<DeliveryRegistration, UUID> {
 
-    /**
-     * NULL-safe on sessionId: a derived query would render `session_id =
-     * NULL` and match nothing, silently breaking idempotency for the
-     * sessionless registerDelivery path.
-     */
+    // NULL-safe on sessionId: a derived query renders `session_id = NULL` (matches nothing),
+    // silently breaking idempotency for the sessionless registerDelivery path.
     @Query(
         "select r from DeliveryRegistration r " +
             "where r.sessionId is not distinct from :sessionId and r.barcode = :barcode",

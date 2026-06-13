@@ -14,13 +14,6 @@ import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.stereotype.Service
 import tools.jackson.databind.ObjectMapper
 
-/**
- * Stand-in for the upstream planning system. Validation and the capacity
- * reservation happen SYNCHRONOUSLY, so a duplicate barcode, impossible
- * dimensions or a full machine reject right here — an accepted announcement
- * is truly planned. The announcement still travels over the parcel-intake
- * topic; the consumer's reserve is idempotent.
- */
 @Service
 @ConditionalOnBooleanProperty("dhl.sim-passthrough.enabled")
 class ParcelAnnouncementService(

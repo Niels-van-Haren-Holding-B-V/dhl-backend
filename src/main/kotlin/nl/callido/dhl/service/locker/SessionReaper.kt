@@ -20,14 +20,8 @@ import org.springframework.stereotype.Component
 import java.time.Instant
 import java.util.UUID
 
-/**
- * The "courier walked away" guard: sessions idle past the timeout are
- * finished at the locker, their unhandled parcels registered NOT_DELIVERED,
- * and locally marked EXPIRED. Stale sessions are reaped concurrently
- * (supervisorScope: one bad session never blocks the others). runBlocking
- * only bridges the blocking @Scheduled entry point, which also guarantees
- * runs never overlap.
- */
+// supervisorScope: one bad session never blocks the others. runBlocking bridges the
+// blocking @Scheduled entry point, which also guarantees runs never overlap.
 @Component
 @ConditionalOnBooleanProperty("dhl.backend.enabled")
 class SessionReaper(
@@ -59,8 +53,6 @@ class SessionReaper(
     private suspend fun reapOne(id: UUID) = locks.withSessionLock(id) {
         val session = io { sessions.findById(id).orElse(null) } ?: return@withSessionLock
         if (session.status != LockerSessionStatus.ACTIVE) return@withSessionLock
-        // Best effort at the locker: if it is unreachable or conflicted we
-        // still expire locally — the truth for OUR domain is NOT_DELIVERED.
         runCatching {
             val version = client.status(session.externalSessionId).version
             client.finished(MutationRequest(session.externalSessionId, version))

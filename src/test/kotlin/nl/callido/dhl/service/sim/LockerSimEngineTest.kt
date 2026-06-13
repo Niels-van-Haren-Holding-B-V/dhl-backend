@@ -32,7 +32,6 @@ class LockerSimEngineTest {
         assertEquals(SimSessionState.READY, bound.state)
         assertEquals(1, bound.version)
 
-        // smallest enabled door in BIG that fits an S parcel
         val smallestFit = LockerConfigurations.byName.getValue("BIG")
             .filter { it.enabled && it.size >= ParcelSize.S }
             .minOf { it.size }
@@ -91,7 +90,6 @@ class LockerSimEngineTest {
         assertThrows<SimEngineConflictException> {
             engine.handInAttempt(MutationRequest(init.sessionId, 1, "DHL-IN-001", ParcelSize.S))
         }
-        // version untouched, failure consumed: same call now succeeds
         val attempt = engine.handInAttempt(MutationRequest(init.sessionId, 1, "DHL-IN-001", ParcelSize.S))
         assertEquals(SimSessionState.HAND_IN_DOOR_OPEN, attempt.state)
     }
@@ -110,8 +108,6 @@ class LockerSimEngineTest {
         val reported = engine.handInReportSize(MutationRequest(init.sessionId, 2))
         assertEquals(SimSessionState.READY, reported.state)
 
-        // the too-small door is still physically open: retry is blocked until
-        // it is closed, and closing it frees the compartment
         val blocked = assertThrows<SimEngineRejectedException> {
             engine.handInAttempt(MutationRequest(init.sessionId, 3, "DHL-IN-002", ParcelSize.L))
         }
@@ -136,13 +132,12 @@ class LockerSimEngineTest {
         assertEquals(SimSessionState.HAND_OUT_DOOR_OPEN, start.state)
         assertEquals(true, start.parcelPresent)
         val comp = assertNotNull(start.compartment)
-        assertEquals(ParcelSize.M, comp.size) // preloaded in the first M compartment
+        assertEquals(ParcelSize.M, comp.size)
 
         engine.door(comp.nr, DoorAction.CLOSE)
         val confirmed = engine.handOutConfirm(MutationRequest(init.sessionId, 3))
         assertEquals(SimSessionState.HAND_OUT_COMPLETED, confirmed.state)
 
-        // second run: missing parcel
         engine.reset(null)
         val init2 = engine.init()
         engine.bind(init2.qrCode)
@@ -159,18 +154,13 @@ class LockerSimEngineTest {
         assertEquals("BIG", state.config)
 
         for ((name, config) in LockerConfigurations.byName) {
-            // exactly one technical compartment (screen/camera/scanner)
             assertEquals(1, config.count { it.label == "TC" }, "$name needs one TC")
-            // modules and the brievenbus are never courier doors
             assertTrue(config.filter { it.label in setOf("TC", "FC", "BUS") }.none { it.enabled })
-            // enabled doors carry unique sequential hardware addresses
             val addresses = config.filter { it.enabled }.map { it.address }
             assertEquals(addresses.toSet().size, addresses.size, "$name addresses must be unique")
             assertEquals((1..addresses.size).toList(), addresses.sorted(), "$name addresses are sequential")
-            // every column has at least one slot and there is an M door for the preload
             assertTrue(config.groupBy { it.column }.values.all { it.isNotEmpty() })
             assertTrue(config.any { it.enabled && it.size == ParcelSize.M }, "$name needs an M door")
-            // the machine face is completely filled: every column has the same pitch
             val pitches = config.groupBy { it.column }.values.map { column ->
                 column.sumOf {
                     if (it.label == "TC" || it.label == "FC") {
@@ -186,19 +176,15 @@ class LockerSimEngineTest {
 
     @Test
     fun `reservation flow - announce, reserve, attempt opens the reserved door, walkaway keeps it`() {
-        // pre-announcement reserves the smallest fitting free door, idempotently
         val reserved = engine.reserve("DHL-IN-NEW", ParcelSize.S)
         assertEquals(CompartmentState.RESERVED, engine.fullState().compartments.single { it.nr == reserved.nr }.state)
         assertEquals(reserved.nr, engine.reserve("DHL-IN-NEW", ParcelSize.S).nr, "reserve must be idempotent per barcode")
 
-        // the courier's attempt opens exactly the reserved door
         val init = engine.init()
         engine.bind(init.qrCode)
         val attempt = engine.handInAttempt(MutationRequest(init.sessionId, 1, "DHL-IN-NEW", ParcelSize.S))
         assertEquals(reserved.nr, attempt.compartment!!.nr, "attempt must open the reserved door")
 
-        // courier walks away; a NEW session starts but doors are physical —
-        // the door STAYS open and blocks any door-opening action
         val init2 = engine.init()
         engine.bind(init2.qrCode)
         val stillOpen = engine.fullState().compartments.single { it.nr == reserved.nr }
@@ -208,8 +194,6 @@ class LockerSimEngineTest {
         }
         assertEquals("DOOR_STILL_OPEN", rejected.code)
 
-        // someone shuts the door: it reverts to RESERVED (the reservation
-        // belongs to the parcel, not the session) and the flow continues
         engine.door(reserved.nr, DoorAction.CLOSE)
         val comp = engine.fullState().compartments.single { it.nr == reserved.nr }
         assertEquals(CompartmentState.RESERVED, comp.state)
@@ -221,7 +205,6 @@ class LockerSimEngineTest {
 
     @Test
     fun `reserve rejects when no fitting door is free`() {
-        // exhaust every door that could fit an XL parcel
         val state = engine.fullState()
         state.compartments
             .filter { it.enabled && it.size >= ParcelSize.XL }
@@ -237,8 +220,6 @@ class LockerSimEngineTest {
         val attempt = engine.handInAttempt(MutationRequest(init.sessionId, 1, "DHL-IN-001", ParcelSize.S))
         val defectNr = assertNotNull(attempt.compartment).nr
 
-        // the door jams: the courier reports a compartment issue — the door
-        // stays physically open, the compartment goes out of service
         val reported = engine.handInReportIssue(MutationRequest(init.sessionId, 2))
         assertEquals(SimSessionState.READY, reported.state)
         assertEquals(
@@ -246,8 +227,6 @@ class LockerSimEngineTest {
             engine.fullState().compartments.single { it.nr == defectNr }.state,
         )
 
-        // deliberate: one broken compartment must not brick the machine —
-        // the next attempt proceeds and opens a DIFFERENT door
         val retry = engine.handInAttempt(MutationRequest(init.sessionId, 3, "DHL-IN-001", ParcelSize.S))
         val second = assertNotNull(retry.compartment)
         assertTrue(second.nr != defectNr, "retry must avoid the defect compartment")
@@ -262,13 +241,9 @@ class LockerSimEngineTest {
         val nr = assertNotNull(attempt.compartment).nr
         engine.door(nr, DoorAction.CLOSE)
 
-        // the courier re-checks the parcel, then walks away with the door open
         val reopened = engine.handInReopen(MutationRequest(init.sessionId, 3))
         assertEquals(SimSessionState.HAND_IN_DOOR_OPEN, reopened.state)
 
-        // a new session starts; someone shuts the abandoned door — the parcel
-        // is physically inside, so the compartment must revert to OCCUPIED,
-        // not silently free up and lose the barcode
         engine.init()
         engine.door(nr, DoorAction.CLOSE)
         val comp = engine.fullState().compartments.single { it.nr == nr }
@@ -280,7 +255,6 @@ class LockerSimEngineTest {
     fun `attempt picks the smallest free compartment that fits`() {
         val init = engine.init()
         engine.bind(init.qrCode)
-        // XXS parcel: should land in the smallest enabled door, not anything bigger
         val smallestDoor = LockerConfigurations.byName.getValue("BIG").filter { it.enabled }.minOf { it.size }
         val attempt = engine.handInAttempt(MutationRequest(init.sessionId, 1, "DHL-XXS-1", ParcelSize.XXS))
         assertEquals(smallestDoor, attempt.compartment!!.size)

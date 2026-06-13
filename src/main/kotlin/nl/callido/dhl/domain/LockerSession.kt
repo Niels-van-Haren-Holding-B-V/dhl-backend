@@ -16,7 +16,6 @@ class LockerSession(
     val courierId: String,
     val externalSessionId: String,
     @Enumerated(EnumType.STRING) var status: LockerSessionStatus,
-    /** Last sim version we observed — the optimistic-locking handle for sim mutations. */
     var simVersion: Int,
     val createdAt: Instant,
     var lastActivityAt: Instant,

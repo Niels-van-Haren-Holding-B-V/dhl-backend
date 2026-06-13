@@ -22,11 +22,6 @@ import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.ResponseStatus
 import org.springframework.web.bind.annotation.RestController
 
-/**
- * Thin authenticated passthrough so the parcel-machine page works with a
- * courier-realm token only — the locker realm never reaches the browser.
- * Disabled in production-like setups via SIM_ENABLED.
- */
 @RestController
 @RequestMapping("/api/sim")
 @ConditionalOnBooleanProperty("dhl.sim-passthrough.enabled")
@@ -52,7 +47,6 @@ class SimProxyController(
     @ResponseStatus(HttpStatus.ACCEPTED)
     suspend fun announceParcel(@Valid @RequestBody req: ParcelAnnouncement): ParcelAnnouncement = announcements.announce(req)
 
-    /** Full reset: the sim AND the seeded data (parcels, sessions, registrations). */
     @PostMapping("/reset")
     suspend fun reset(@RequestBody(required = false) req: ResetRequest?): SimStateSnapshot {
         withContext(Dispatchers.IO) { demoReset.resetDemoData() }

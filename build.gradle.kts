@@ -5,6 +5,9 @@ plugins {
     id("org.springframework.boot") version "4.1.0"
     id("io.spring.dependency-management") version "1.1.7"
     id("org.jlleitschuh.gradle.ktlint") version "13.1.0"
+    // Compile-time object mapping (no KSP, no reflection): generates the
+    // entity→DTO copy code. Version is <kotlin>-<mappie>; pinned to Kotlin 2.4.0.
+    id("tech.mappie.plugin") version "2.4.0-2.4.1"
 }
 
 group = "nl.callido.dhl"

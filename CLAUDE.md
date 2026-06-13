@@ -40,6 +40,10 @@ at this server. locker-sim itself gets NO public hostname (ClusterIP only).
 - Jackson 3 (`tools.jackson`), springdoc-openapi 3: spec at /v3/api-docs —
   dhl-frontend generates its client from this
 - resilience4j circuit breaker (core lib, wired programmatically — no Boot 4 starter)
+- Mappie (`tech.mappie.plugin`, compiler plugin — no KSP, no reflection): generates
+  the entity→DTO field copying. Mappers are top-level `ObjectMappie`/`ObjectMappie2`
+  objects in `mapper/`; the service keeps the grouping/joining, the mapper copies
+  the same-named fields. See `mapper/trips/` (Parcel→ParcelDto etc.).
 - Testcontainers 2.x (Postgres, Redpanda); artifact ids are
   `testcontainers-postgresql` etc., managed by the Boot BOM
 
@@ -128,8 +132,10 @@ hand-out parcel DHL-OUT-001 is pre-loaded in the first M compartment.
 - POST /api/locker/sessions {stopId} → init at locker-sim, persist, return {sessionId, qrPayload}
 - GET  /api/locker/sessions/{id} → proxied status
 - POST /api/locker/sessions/{id}/finish
-- POST /api/locker/sessions/{id}/hand-in/validate|attempt|confirm|continue|report-size|report-issue|reopen
-- POST /api/locker/sessions/{id}/hand-out/start|continue|confirm|report-missing|abort
+- POST /api/locker/sessions/{id}/hand-in/validate (a check, not a transition — own route, own response shape)
+- POST /api/locker/sessions/{id}/hand-in {action: ATTEMPT|CONFIRM|CONTINUE|REPORT_SIZE|REPORT_ISSUE|REOPEN, barcode?}
+- POST /api/locker/sessions/{id}/hand-out {action: START|CONTINUE|CONFIRM|REPORT_MISSING|ABORT, barcode?}
+  — one command endpoint per flow; the event is data, the locker engine validates the transition (vs. a route per verb)
 - POST /api/deliveries/register — the "existing" registerDelivery endpoint; the
   locker flow calls it internally on HANDED_IN / hand-out confirm. Keep it as a
   real endpoint to demonstrate path reuse.

@@ -34,13 +34,6 @@ import java.time.Instant
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-/**
- * Kafka ingestion from "upstream planning": parcels announced on the
- * parcel-intake topic must appear as EXPECTED hand-in parcels on the LOCKER
- * stop — exercised through the BFF demo endpoint AND through raw Kafka, so we
- * prove the consumer and not just the controller. Also proves idempotency and
- * that a poison-pill message does not block the partition.
- */
 @SpringBootTest(
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
     properties = ["dhl.reaper.enabled=false"],
@@ -121,12 +114,11 @@ class ParcelIntakeIntegrationTest {
 
     @Test
     fun `announced parcel lands as EXPECTED hand-in on the LOCKER stop, idempotent, poison-pill safe`() {
-        // 1) a malformed message FIRST: must be skipped, never block the partition
+        // Poison-pill sent FIRST on purpose: proves a malformed message does not block the partition for the valid ones that follow.
         rawProducer().use { producer ->
             producer.send(ProducerRecord(ParcelIntakeConsumer.TOPIC, "poison", "this is not json")).get()
         }
 
-        // 2) announce through the BFF demo endpoint (frontend path)
         val announcement = ParcelAnnouncement(
             barcode = "DHL-IN-KAFKA-1",
             lengthCm = 30,
@@ -141,7 +133,6 @@ class ParcelIntakeIntegrationTest {
             .retrieve().toBodilessEntity()
         assertEquals(202, response.statusCode.value(), "announcement is accepted, not processed inline")
 
-        // 3) ingestion is asynchronous: the parcel appears via the consumer
         await().atMost(Duration.ofSeconds(20)).until {
             jdbc.queryForObject(
                 "select count(*) from parcel where barcode = ?",
@@ -154,7 +145,6 @@ class ParcelIntakeIntegrationTest {
         assertEquals("HAND_IN", row["direction"])
         assertEquals(30, row["length_cm"])
 
-        // pre-announcement: the machine reserved a fitting door, visible on the machine page
         val machine = http.get().uri("/api/sim/state")
             .headers { it.setBearerAuth("test-token") }
             .retrieve().toEntity(SimStateSnapshot::class.java).body!!
@@ -162,15 +152,13 @@ class ParcelIntakeIntegrationTest {
         assertEquals("RESERVED", reserved.state.name)
         assertTrue(reserved.size.name in listOf("S", "M"), "a 30x20x10 parcel reserves the smallest fitting door")
 
-        // it is attached to the seeded LOCKER stop and visible through /api/trips
         val trips = http.get().uri("/api/trips")
             .headers { it.setBearerAuth("test-token") }
             .retrieve().toEntity(Array<TripDto>::class.java).body!!.toList()
         val lockerStop = trips.single().stops.single { it.deliveryLocationType.name == "LOCKER" }
         assertEquals(1, lockerStop.parcels.count { it.barcode == "DHL-IN-KAFKA-1" })
 
-        // 4) duplicate announcement is a no-op (replay safety). Send the dup,
-        // then a sentinel; once the sentinel is ingested the dup was processed.
+        // Dup is followed by a sentinel: once the sentinel is ingested we know the dup was processed, so a no-op can be asserted.
         rawProducer().use { producer ->
             producer.send(
                 ProducerRecord(
@@ -196,7 +184,6 @@ class ParcelIntakeIntegrationTest {
             "duplicate announcement must not create a second parcel",
         )
 
-        // 5) reset removes announced parcels again; seeded parcels survive
         http.post().uri("/api/sim/reset")
             .headers { it.setBearerAuth("test-token") }
             .contentType(MediaType.APPLICATION_JSON)

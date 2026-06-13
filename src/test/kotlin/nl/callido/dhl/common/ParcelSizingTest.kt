@@ -19,7 +19,6 @@ class ParcelSizingTest {
 
     @Test
     fun `fit is orientation-free`() {
-        // 3x25x35 is an XXS lying on its side
         assertEquals(ParcelSize.XXS, ParcelSize.forDimensions(3, 25, 35))
         assertEquals(ParcelSize.XXS, ParcelSize.forDimensions(25, 35, 3))
     }

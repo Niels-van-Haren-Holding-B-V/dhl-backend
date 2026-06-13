@@ -2,11 +2,6 @@ package nl.callido.dhl.service.sim
 
 import nl.callido.dhl.common.ParcelSize
 
-/**
- * Static compartment spec, modelled after a real PostNL-style locker: each
- * compartment has a label ("C3"), a column, a hardware (relay) address, an
- * optional back-door address and an enabled flag.
- */
 data class CompartmentSpec(
     val nr: Int,
     val label: String,
@@ -17,23 +12,11 @@ data class CompartmentSpec(
     val enabled: Boolean = true,
 )
 
-/**
- * Machine layouts parsed from REAL parcel-machine templates, format
- * `<steel> <hw> [<colNr> <slot>...]...`: a numeric token starts a new column,
- * the tokens after it are the slots in that column, top to bottom.
- *
- * Slot tokens: XS/S/M/L/XL are courier doors. B is the brievenbus — a
- * letterbox with a FIXED hardware address (0, or 20 on steel type 1/2 with a
- * short column) outside the normal address sequence; couriers cannot open
- * it, so it is disabled here. TC is the technical compartment (touch screen,
- * camera, barcode scanner); FC is a functional compartment — both embedded
- * modules, not doors.
- */
 object LockerConfigurations {
 
     const val DEFAULT = "BIG"
 
-    /** Barcode of the hand-out parcel pre-loaded at machine start (first M compartment). */
+    // Keep in sync with the Flyway seed hand-out barcode (pre-loaded in the first M compartment).
     const val PRELOADED_HAND_OUT_BARCODE = "DHL-OUT-001"
 
     private const val MINI_TEMPLATE = "1 2 1 XS M L TC 2 S M XL FC"
@@ -54,7 +37,7 @@ object LockerConfigurations {
         "XXL" to ParcelSize.XXL,
     )
 
-    /** Door pitch per size (door + frame), cm; modules (TC/FC) have a fixed pitch. */
+    // Mirror of the door-pitch table in the frontend's MachinePage.tsx — keep in sync.
     val DOOR_PITCH_CM: Map<ParcelSize, Int> = mapOf(
         ParcelSize.XXS to 10,
         ParcelSize.XS to 15,
@@ -86,10 +69,7 @@ object LockerConfigurations {
                 columns.getValue(column).add(token)
             }
         }
-        // the letterbox address rule looks at the column as TEMPLATED
         val templatedColumnSize = columns.mapValues { (_, slots) -> slots.size }
-        // a machine face is always completely filled: pad every column with
-        // extra doors until it reaches the tallest column of the template
         val tallest = columns.values.maxOf { slots -> slots.sumOf(::pitchOf) }
         for (slots in columns.values) {
             var gap = tallest - slots.sumOf(::pitchOf)
@@ -101,7 +81,6 @@ object LockerConfigurations {
                 slots.add(fill)
                 gap -= pitchOf(fill)
             }
-            // a 5cm sliver: swap one small door for the next size up
             if (gap == 5) {
                 val swaps = listOf("XXS" to "XS", "XS" to "S", "S" to "M")
                 for ((out, repl) in swaps) {
@@ -132,7 +111,6 @@ object LockerConfigurations {
                         nr = nr,
                         label = "BUS",
                         column = col,
-                        // the letterbox has a fixed hardware address outside the sequence
                         address = if (steel <= 2 && templatedColumnSize.getValue(col) <= 4) 20 else 0,
                         backAddress = null,
                         size = ParcelSize.XXS,

@@ -1,13 +1,5 @@
 package nl.callido.dhl.common
 
-/**
- * T-shirt sizing for parcels and compartments. The REAL dimensions are leading:
- * a parcel's size is always derived from its measured dimensions, never stored.
- * Each size carries the inner dimensions of the matching compartment type.
- *
- * Fit is orientation-free: dimensions are compared sorted, so a parcel may be
- * rotated to fit.
- */
 enum class ParcelSize(val maxLengthCm: Int, val maxWidthCm: Int, val maxHeightCm: Int) {
     XXS(35, 25, 3),
     XS(35, 25, 8),
@@ -25,7 +17,6 @@ enum class ParcelSize(val maxLengthCm: Int, val maxWidthCm: Int, val maxHeightCm
     }
 
     companion object {
-        /** Smallest size that fits the given dimensions, or null if nothing does. */
         fun forDimensions(lengthCm: Int, widthCm: Int, heightCm: Int): ParcelSize? =
             entries.firstOrNull { it.fits(lengthCm, widthCm, heightCm) }
     }

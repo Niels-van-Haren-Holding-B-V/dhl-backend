@@ -8,12 +8,6 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnBooleanProp
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 
-/**
- * Demo-only: puts the seeded data back in its starting position, the same
- * thing infra's demo-reset Job does between demo runs — wired to the reset
- * button on the parcel-machine page so one click resets the WHOLE demo
- * (the sim resets separately via the locker API).
- */
 @Service
 @ConditionalOnBooleanProperty("dhl.sim-passthrough.enabled")
 class DemoResetService(

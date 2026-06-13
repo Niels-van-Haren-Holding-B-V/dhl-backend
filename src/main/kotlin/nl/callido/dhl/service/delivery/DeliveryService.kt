@@ -12,10 +12,6 @@ import org.springframework.transaction.annotation.Transactional
 import java.time.Instant
 import java.util.UUID
 
-/**
- * The registerDelivery path — the locker flow funnels into the same logic
- * that doorstep deliveries use.
- */
 @Service
 class DeliveryService(
     private val registrations: DeliveryRegistrationRepository,
@@ -23,14 +19,9 @@ class DeliveryService(
     private val outboxWriter: OutboxWriter,
 ) {
 
-    /**
-     * Idempotent on (sessionId, barcode) — INCLUDING the sessionless path
-     * (sessionId = null): the lookup is NULL-safe (`is not distinct from`)
-     * and the schema backstops it with UNIQUE NULLS NOT DISTINCT. A
-     * duplicate registration — double tap, reconciled retry, replayed
-     * request, repeated doorstep call — must not produce a second outbox
-     * row. Registration and outbox row commit in the SAME transaction.
-     */
+    // Idempotent on (sessionId, barcode), sessionId=null included: NULL-safe lookup (`is not
+    // distinct from`) backstopped by UNIQUE NULLS NOT DISTINCT. Registration + outbox row commit
+    // in the SAME transaction, so a duplicate never produces a second outbox row.
     @Transactional
     fun register(barcode: String, status: ParcelStatus, sessionId: UUID? = null): RegisterDeliveryResponse {
         registrations.findBySessionIdAndBarcode(sessionId, barcode)?.let {

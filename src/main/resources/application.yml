@@ -3,8 +3,7 @@ spring:
     name: dhl-backend
   autoconfigure:
     exclude:
-      # We define two realm-specific chains + decoders ourselves; Boot's
-      # single-decoder resource-server chain must not try to auto-build.
+      # We define two realm-specific chains + decoders ourselves; Boot's single-decoder chain must not auto-build.
       - org.springframework.boot.security.oauth2.server.resource.autoconfigure.web.reactive.ReactiveOAuth2ResourceServerWebSecurityAutoConfiguration
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:12432/dhl}
@@ -20,7 +19,6 @@ spring:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.apache.kafka.common.serialization.StringSerializer
     consumer:
-      # parcel-intake ingestion from upstream planning (see ParcelIntakeConsumer)
       group-id: dhl-backend
       auto-offset-reset: earliest
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
@@ -35,7 +33,6 @@ management:
       exposure:
         include: health,info
 
-# OpenAPI docs are dev-only: client generation runs against a local backend.
 springdoc:
   api-docs:
     enabled: ${OPENAPI_ENABLED:false}
@@ -44,18 +41,14 @@ springdoc:
 
 dhl:
   backend:
-    # false in the k3s locker-sim deployment: that pod only serves /locker-api
     enabled: ${DHL_BACKEND_ENABLED:true}
   security:
     courier-issuer: ${KEYCLOAK_ISSUER_COURIER:http://localhost:12081/realms/courier}
     locker-issuer: ${KEYCLOAK_ISSUER_LOCKER:http://localhost:12081/realms/locker}
-    # only set in the dockerized local stack (see infra/docker-compose.yml)
     courier-jwks: ${KEYCLOAK_JWKS_COURIER:}
     locker-jwks: ${KEYCLOAK_JWKS_LOCKER:}
   locker-sim:
-    # where the BFF reaches the locker-sim; local dev talks to itself
     base-url: ${LOCKER_SIM_BASE_URL:http://localhost:12080}
-    # whether THIS instance serves /locker-api (false in the k3s backend deployment)
     serve: ${LOCKER_SIM_SERVE:true}
   locker-client:
     token-uri: ${LOCKER_TOKEN_URI:http://localhost:12081/realms/locker/protocol/openid-connect/token}

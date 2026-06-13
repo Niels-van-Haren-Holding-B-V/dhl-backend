@@ -30,11 +30,6 @@ enum class SimEvent {
     FINISH,
 }
 
-/**
- * The single source of truth for what is allowed when. Everything outside this
- * table is an illegal transition and yields a 409 — by design, so the BFF's
- * reconcile path gets exercised by real conflicts, not just FORCE_409.
- */
 object SessionStateMachine {
 
     val transitions: Map<SimSessionState, Set<SimEvent>> = mapOf(
