@@ -5,6 +5,10 @@ metadata:
   namespace: dhl-demo
 spec:
   replicas: 1   # SessionLocks is in-memory: scaling out needs pg advisory locks first
+  # Recreate, not RollingUpdate: the single 4GB node cannot hold two JVMs of this
+  # at once — a surge deadlocks the rollout (new pod never gets Ready) and starves k3s.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: dhl-backend

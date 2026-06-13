@@ -8,6 +8,9 @@ metadata:
   namespace: dhl-demo
 spec:
   replicas: 1   # it simulates ONE physical machine; state is in memory
+  # Recreate, not RollingUpdate: one 4GB node can't hold two of these JVMs during a surge.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: locker-sim
